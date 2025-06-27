@@ -352,7 +352,7 @@ def render_lib_precomp():
                     metadata_tsv=st.session_state['metadata_tsv'],
                     mat_data=st.session_state['mat_data'],
                     annotate_fragments=True,
-                    fragment='brute',
+                    fragment='macfrag',
                     progress_callback=progress_callback
                 )
                 output_buffer = io.StringIO()

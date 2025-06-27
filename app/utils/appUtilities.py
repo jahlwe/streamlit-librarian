@@ -328,7 +328,7 @@ def preCompile_app(
     metadata_tsv,
     mat_data,
     annotate_fragments=True,
-    fragment='brute',
+    fragment='macfrag',
     progress_callback=None
 ):
     if mat_data:
@@ -458,12 +458,13 @@ def compileLib_app(
                     'count': count,
                     'ppm': ppm
                 }
-            # reconcile with full peak list
-            ms2_display = []
-            # run through each MS2 peak, w/ or w/out annotation
-            for mz, abs_int, norm_int in data['ms2_norm']:
-                key = round(mz, 4)
-                # add data from annotated lookup dict
+        # reconcile with full peak list
+        ms2_display = []
+        # run through each MS2 peak, w/ or w/out annotation
+        for mz, abs_int, norm_int in data['ms2_norm']:
+            key = round(mz, 4)
+            # add data from annotated lookup dict
+            if annot_lookup:
                 annotation = annot_lookup.get(key, {})
                 ms2_display.append({
                     'exp_mz': mz,
@@ -474,9 +475,15 @@ def compileLib_app(
                     'count': annotation.get('count'),
                     'ppm': annotation.get('ppm')
                 })
-    
+            else:
+                ms2_display.append({
+                    'exp_mz': mz,
+                    'abs_int': abs_int,
+                    'norm_int': norm_int
+                })
+
             data['ms2_display'] = ms2_display
-        
+
     # now we simply return this and do the .txt files later
     return dictionary
 
