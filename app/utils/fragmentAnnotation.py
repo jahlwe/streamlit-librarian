@@ -5,6 +5,7 @@ Created on Tue Jun 17 18:00:22 2025
 @author: Jakob
 """
 import utils.genericUtilities as gu
+import utils.Macfrag as MacFrag
 import re
 import itertools
 import IsoSpecPy as iso
@@ -426,6 +427,100 @@ def formulas_to_counts(formulas, adduct=None, min_mass=50, iso_cutoff=0.01):
                 formula_dict[current_formula] = filtered_dist
     return formula_dict
 
+# ---- BRIGS & MACFRAG ----
+
+def clean_dummy_from_formula(formula):
+    # dummy artifacts are * or *(number)
+    return re.sub(r'\*\d*', '', formula)
+
+def atom_count_from_mol(mol):
+    formula = Chem.rdMolDescriptors.CalcMolFormula(mol)
+    return sum(parse_formula(formula).values())
+
+def get_BRICS(parent_mol):
+    break_mol = BRICS.BreakBRICSBonds(parent_mol)
+    frags = Chem.GetMolFrags(break_mol, asMols=True)
+    if len(frags) > 1:
+        for frag in frags:
+            for atom in frag.GetAtoms():
+                atom.SetAtomMapNum(0)
+        return {Chem.MolToSmiles(frag, True):atom_count_from_mol(frag) for frag in frags}
+    else:
+        return {}
+    
+def collect_fragment_formulas_BRICS(data):
+    formulas = []
+    if data.get('smiles'):
+        # get parent mol and store smiles & atom count
+        parent_mol = Chem.MolFromSmiles(data['smiles'])
+        smiles_dict = {data['smiles']:atom_count_from_mol(parent_mol)}
+        # get brics fragments
+        BRICS_dict = get_BRICS(parent_mol)
+        if len(BRICS_dict) > 0:
+            smiles_dict.update(BRICS_dict)
+        # update the list of formulas with what we have so far
+        for smiles in smiles_dict:
+            temp_mol = Chem.MolFromSmiles(smiles)
+            formulas.append(Chem.rdMolDescriptors.CalcMolFormula(temp_mol))
+        # now find subgraph fragments for parent + BRICS that are of OK size
+        for smiles, atom_count in smiles_dict.items():
+            if atom_count > 6 and atom_count < 20:
+                # print(f'subgraph calculation for entity of length {atom_count}')
+                temp_mol = Chem.MolFromSmiles(smiles)
+                # we should adjust the minimum size of the subgraphs
+                min_submol_size = int(atom_count * 0.66)
+                returned_formulas = get_connected_subgraphs(temp_mol, min_submol_size)
+                formulas.extend(returned_formulas)
+        # clean formulas of dummy artifacts
+        formulas = [clean_dummy_from_formula(formula) for formula in formulas]
+        # keep uniques
+        unique_formulas = sorted(set(formulas))
+        return [len(unique_formulas), list(unique_formulas)]
+    else:
+        return [0, []]
+    
+def get_MacFrag(parent_mol):
+    # this returns a list of SMILES.
+    MacFrags = MacFrag.MacFrag(parent_mol)
+    # no need for position cleaning, they do this themselves
+    if len(MacFrags) > 1:
+        # an annoying thing is that we need atom counts
+        # and for that we need mols
+        def smiles_to_mol_to_formula_to_count(smiles):
+            temp_mol = Chem.MolFromSmiles(smiles)
+            atom_count = atom_count_from_mol(temp_mol)
+            return atom_count
+        return {smiles:smiles_to_mol_to_formula_to_count(smiles) for smiles in MacFrags}
+    else:
+        return {}
+    
+def collect_fragment_formulas_MacFrag(data, subgraph=True):
+    formulas = []
+    if data.get('smiles'):
+        # get parent mol and store smiles & atom count
+        parent_mol = Chem.MolFromSmiles(data.get('smiles'))
+        parent_atom_count = atom_count_from_mol(parent_mol)
+        smiles_dict = {data['smiles']:atom_count_from_mol(parent_mol)}
+        # get MacFrag (!) fragments
+        MacFrag_dict = get_MacFrag(parent_mol)
+        if len(MacFrag_dict) > 0:
+            smiles_dict.update(MacFrag_dict)
+        # update the list of formulas with what we have so far
+        for smiles in smiles_dict:
+            temp_mol = Chem.MolFromSmiles(smiles)
+            formulas.append(Chem.rdMolDescriptors.CalcMolFormula(temp_mol))
+        # now find subgraph fragments for parent + MacFrags that are of OK size
+        if subgraph:
+            pass
+        # clean formulas of dummy artifacts
+        formulas = [clean_dummy_from_formula(formula) for formula in formulas]
+        # keep uniques
+        unique_formulas = sorted(set(formulas))
+        print(unique_formulas)
+        return [len(unique_formulas), list(unique_formulas)]
+    else:
+        return [0, []]
+
 # ---- ANNOTATION FUNCTION ----
 
 def annotate_spectrum(compound, data, fragments='brute'):
@@ -455,6 +550,8 @@ def annotate_spectrum(compound, data, fragments='brute'):
         print("Scoring fragments...")
         assignments = greedy_envelope_hybrid(spectrum, formulas, molecular_ion_mz)
     elif fragments == 'brics':
+        pass
+    elif fragments == 'macfrag':
         pass
     
     # to be placed under PK$ANNOTATION:

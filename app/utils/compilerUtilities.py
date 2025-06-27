@@ -494,10 +494,7 @@ def prepare_preCompilationSheet(
             [short_name, data['instrument_type'], data['ms_type'], 
              data['collision_energy'], data['resolution'], data['ion_type']])
         data['title'] = record_title
-        # apparently, MassBank does NOT want charge indicators in molecular formulas.
-        # adjusting that here.
-        if data.get('molecularFormula'):
-            data['molecularFormula'] = re.sub(r"[+\-]\d*$|[+\-]$", '', data['molecularFormula'])
+
         # also! run the adduct checker.
         data['ion_type'], data['adduct_validated'] = adduct_checker(compound, data)
         # also! annotate fragments.
@@ -509,7 +506,7 @@ def prepare_preCompilationSheet(
                 )
             except Exception as e:
                 data['frag_annot'] = None
-                print(f'failed fragment annotation for {compound}: {e}')  
+                print(f'failed fragment annotation for {compound}: {e}')
                 
     gu.dict_to_sheet(dictionary, f'compiler/{file_name}_{mode}')
     return None
@@ -557,6 +554,18 @@ def filter_preComp(
                 
     return filtered_dict
 
+# MassBank wants a PARTICULAR FORMAT for natively charged mol formulas
+# lets actually fix it when writing txt files, we want it to be intact
+# when doing stuff prior, like formula annotation
+def reformat_charged_formula(formula):
+    match = re.match(r'^([A-Za-z0-9]+)([+-])(\d*)$', formula)
+    if match:
+        formula_base, sign, number = match.groups()
+        charge = (number if number else '') + sign
+        return f'[{formula_base}]{charge}'
+    else: # if for some reason a non-charged formula is put through the function
+        return formula
+
 def write_txtFile(compound, data, save_path, field_order=None):
     '''
     Helper for create_txtFiles --- writes a single .txt file from dictionary data.
@@ -573,6 +582,9 @@ def write_txtFile(compound, data, save_path, field_order=None):
                 value = re.sub(r' feature no\. \d+$', '', value)
             if field == 'ion_mode' and value: # mode should be CAPITALIZED. for MassBank.
                 f.write(f'{mb_field} {value.upper()}\n')
+                continue
+            if field == 'molecularFormula':
+                f.write(f'{mb_field} {reformat_charged_formula(value)}\n')
                 continue
             if value is None or str(value) == 'nan':
                 continue
