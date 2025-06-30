@@ -12,7 +12,7 @@ import utils.genericUtilities as gu
 import utils.pubchemUtilities as pu
 import utils.classyfireUtilities as cu
 import utils.qcUtilities as qu
-import utils.fragmentAnnotation as fa
+import utils.fragmentAnnotationNew as fa
 import csv
 import pandas as pd
 from utils.spectrum import Spectrum
@@ -501,9 +501,10 @@ def prepare_preCompilationSheet(
         if annotate_fragments:
             try:
                 print(f'annotating {compound} MS2')
-                data['frag_annot'] = fa.annotate_spectrum(
-                    compound, data, fragment
-                )
+                loss_fragments = fa.generate_ref_fragments(data)
+                loss_fragments = fa.generate_more_fragments(data, loss_fragments)
+                match_list = fa.match_loss_fragments(data, loss_fragments)
+                data['frag_annot'] = fa.format_annotation(data, match_list)
             except Exception as e:
                 data['frag_annot'] = None
                 print(f'failed fragment annotation for {compound}: {e}')

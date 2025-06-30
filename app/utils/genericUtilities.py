@@ -54,8 +54,20 @@ def convert_value(value):
         if value_stripped.startswith('[') and value_stripped.endswith(']'):
             # need this to deal with numpy floats
             value_stripped = re.sub(r'np\.float64\(([^)]+)\)', r'\1', value_stripped)
+            # deal with inf in lists
+            value_stripped = value_stripped.replace('inf', '1e999')
             try:
-                return ast.literal_eval(value_stripped)
+                result = ast.literal_eval(value_stripped)
+                # replace 1e999 with inf again
+                if isinstance(result, list):
+                    result = [
+                        tuple(float('inf') if x == 1e999 else x for x in tup)
+                        if isinstance(tup, tuple) else tup
+                        for tup in result
+                    ]
+                elif isinstance(result, tuple):
+                    result = tuple(float('inf') if x == 1e999 else x for x in result)
+                return result
             except Exception:
                 return value_stripped
         # try integer conversion

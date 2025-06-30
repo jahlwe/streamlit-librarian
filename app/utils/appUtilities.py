@@ -16,7 +16,7 @@ import utils.genericUtilities as gu
 import utils.pubchemUtilities as pu
 import utils.compilerUtilities as cu
 import utils.qcUtilities as qu
-import utils.fragmentAnnotation as fa
+import utils.fragmentAnnotationNew as fa
 import csv
 import pandas as pd
 from utils.spectrum import Spectrum
@@ -29,6 +29,8 @@ import io
 import zipfile
 import streamlit as st
 import plotly.graph_objects as go
+import math
+import streamlit_ketcher as st_ketcher
 
 # --- NEEDED STUFF ---
 # use to convert less-complicated storage names of variables
@@ -52,6 +54,10 @@ FIELD_CONVERSION = {
     'monoisotopicMass': 'CH$EXACT_MASS:',
     'smiles': 'CH$SMILES:',
     'inchi': 'CH$IUPAC:',
+    'cas': 'CH$LINK: CAS',
+    'pubchemCID': 'CH$LINK: PUBCHEM CID:',
+    'inchikey': 'CH$LINK: INCHIKEY',
+    'comptoxURL': 'CH$LINK: COMPTOX',
     'instrument': 'AC$INSTRUMENT:',
     'instrument_type': 'AC$INSTRUMENT_TYPE:',
     'ms_type': 'AC$MASS_SPECTROMETRY: MS_TYPE',
@@ -76,10 +82,6 @@ FIELD_CONVERSION = {
     'num_peak': 'PK$NUM_PEAK:',
     'ms2_peaks': 'PK$PEAK:',
     'ms2_annot': 'PK$ANNOTATION:',
-    'cas': 'CH$LINK: CAS',
-    'pubchemCID': 'CH$LINK: PUBCHEM CID:',
-    'inchikey': 'CH$LINK: INCHIKEY',
-    'comptoxURL': 'CH$LINK: COMPTOX',
 }
 
 # use this at the end of compilation to generate a mastersheet 
@@ -173,10 +175,10 @@ def read_archive(mat_archive, archive_type):
     return mat_files_dict
 
 def parse_matFile_app(
-        file, 
-        dictionary, 
-        mode,
-        normalize_ms2=True
+    file, 
+    dictionary, 
+    mode,
+    normalize_ms2=True
 ):
     current_compound = None
     current_record = {}
@@ -328,7 +330,6 @@ def preCompile_app(
     metadata_tsv,
     mat_data,
     annotate_fragments=True,
-    fragment='macfrag',
     progress_callback=None
 ):
     if mat_data:
@@ -365,9 +366,10 @@ def preCompile_app(
             if annotate_fragments:
                 try:
                     print(f'annotating {compound} MS2')
-                    data['frag_annot'] = fa.annotate_spectrum(
-                        compound, data, fragment
-                    )
+                    loss_fragments = fa.generate_ref_fragments(data)
+                    loss_fragments = fa.generate_more_fragments(data, loss_fragments)
+                    match_list = fa.match_loss_fragments(data, loss_fragments)
+                    data['frag_annot'] = fa.format_annotation(data, match_list)
                 except Exception as e:
                     data['frag_annot'] = None
                     print(f'failed fragment annotation for {compound}: {e}')
@@ -379,9 +381,9 @@ def preCompile_app(
 # --- COMPILATION ---
 
 def filter_preComp_app(
-        dictionary, 
-        mode
-    ):
+    dictionary, 
+    mode
+):
     '''
     Optional function to filter the preComp-sheet when assembling.
     Besides using a .txt file to skip compounds by name as listed
@@ -410,13 +412,15 @@ def filter_preComp_app(
                 
     return filtered_dict
 
+dictionary = gu.sheet_to_dict('preAssembly_pos_newAnnot.csv')
+
 def compileLib_app(
-        dictionary,
-        acc_start,
-        acc_full,
-        acc_short,
-        mode
-    ):
+    dictionary,
+    acc_start,
+    acc_full,
+    acc_short,
+    mode
+):
     # fill in the the final data fields using provided acc info
     for i, (compound, data) in enumerate(dictionary.items()):
         acc_n = f'{acc_start + i:06d}'
@@ -435,12 +439,13 @@ def compileLib_app(
         current_ms2 = Spectrum(peak_data_splash, SpectrumType.MS)
         data['splash'] = str(Splash().splash(current_ms2))
         peak_line = 'm/z int. rel.int.\n' + ''.join(
-            f' {mz} {abs_int} {norm_int}\n' for mz, abs_int, norm_int in data['ms2_norm']
+            f'  {mz} {abs_int} {norm_int}\n' for mz, abs_int, norm_int in data['ms2_norm']
         )
         data['ms2_peaks'] = peak_line
+        
         if data.get('frag_annot', None):
             annot_line = 'm/z tentative_formula formula_count mass error(ppm)\n' + ''.join(
-                f' {theo_mz} {t_f} {f_count} {exp_mz} {ppm}\n' for theo_mz, t_f, f_count, exp_mz, ppm in data['frag_annot']
+                f'  {theo_mz} {t_f} {f_count} {exp_mz} {ppm}\n' for theo_mz, t_f, f_count, exp_mz, ppm in data['frag_annot'] if theo_mz is not None
             )
             data['ms2_annot'] = annot_line
         
@@ -475,7 +480,7 @@ def compileLib_app(
                     'count': annotation.get('count'),
                     'ppm': annotation.get('ppm')
                 })
-            else:
+            else: # if there is no annotations at all, we have to do this
                 ms2_display.append({
                     'exp_mz': mz,
                     'abs_int': abs_int,
@@ -544,45 +549,59 @@ def write_mspFile_app(comp_dict, mode):
 def create_compZip(comp_data, mode):
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, 'w') as zipf:
-        # Add .txt files
+        # add .txt files
         for compound, data in comp_data.items():
             txt_content = write_txtFile_app(compound, data)
             txt_filename = f'{compound}_{data["short_acc"]}.txt'
             zipf.writestr(f'{mode}/txt/{txt_filename}', txt_content)
         
-        # Add CSV
+        # add .csv
         csv_content = write_compSheet(comp_data)
         zipf.writestr(f'{mode}/compiled_{mode}.csv', csv_content)
         
-        # Add MSP
+        # add .msp
         msp_content = write_mspFile_app(comp_data, mode)
         zipf.writestr(f'{mode}/msp/library_{mode}.msp', msp_content)
     
     zip_buffer.seek(0)
     return zip_buffer
 
-def plot_MS2(ms2_display, precursor_mz, title='placeholder'):
+def formula_to_subscript(formula):
+    # unicode subscripts, never knew that was a thing
+    subscript_map = {
+        '0': '₀', '1': '₁', '2': '₂', '3': '₃', '4': '₄',
+        '5': '₅', '6': '₆', '7': '₇', '8': '₈', '9': '₉'
+    }
+    result = []
+    for char in formula:
+        result.append(subscript_map.get(char, char))
+    return ''.join(result)
+
+def plot_MS2(data, ms2_display, precursor_mz, title='placeholder'):
     mzs = [peak['exp_mz'] for peak in ms2_display]
     intensities = [peak['norm_int'] for peak in ms2_display]
     formulas = [peak.get('formula') for peak in ms2_display]
     ppms = [peak.get('ppm') for peak in ms2_display]
-
+    int_explained = round(sum(
+        peak['norm_int'] for peak in ms2_display if peak.get('formula')) / sum(peak['norm_int'] for peak in ms2_display) * 100, 1)
+    
+    base_formula_formatted = formula_to_subscript(data['molecularFormula'])
     fig = go.Figure()
 
-    # Plot all peaks as vertical lines ('sticks')
     hovertexts = []
     for mz, intensity, formula, ppm in zip(mzs, intensities, formulas, ppms):
         text = f'm/z: {mz}<br>Rel. Int: {intensity}'
         if formula: # only add these if present
-            text += f'<br>Formula: {formula}'
-        if ppm:
-            text += f'<br>ppm dev: {ppm}'
+            text += f'<br>Formula: {formula_to_subscript(formula)}'
+        if ppm is not None and not math.isinf(ppm):
+            text += f'<br>ppm dev: {0.0 + ppm}'
         hovertexts.append(text)
-
+    
+    # make bars
     fig.add_trace(go.Bar(
         x=mzs,
         y=intensities,
-        width=[0.15]*len(mzs),
+        width=[0.25]*len(mzs),
         marker_color='red',
         hovertext=hovertexts,
         hoverinfo='text',
@@ -590,7 +609,11 @@ def plot_MS2(ms2_display, precursor_mz, title='placeholder'):
     ))
 
     fig.update_layout(
-        title=f'{title}; MS1 {precursor_mz}',
+        title={
+            'text': f'{title}<br><sup>MS1: {precursor_mz} • Formula: {base_formula_formatted} • int. explained: {int_explained}%</sup>',
+            'font': dict(size=18)
+        },
+        hoverlabel=dict(font_size=16),
         xaxis_title='m/z',
         yaxis_title='Relative Intensity',
         bargap=0.1,

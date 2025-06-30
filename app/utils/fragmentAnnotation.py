@@ -1012,6 +1012,7 @@ def annotate_spectrum(compound, data, fragments='macfrag'):
     adduct = data.get('ion_type', None)
     smiles = data.get('smiles', None)
     mode = '+' if get_charge(adduct) == 1 else '-'
+    anti_mode = '-' if get_charge(adduct) == 1 else '+'
     # ready check...
     if not (spectrum and formula and adduct and smiles):
         print(f'missing data for {compound} --- cannot annotate ms2')
@@ -1037,6 +1038,7 @@ def annotate_spectrum(compound, data, fragments='macfrag'):
     elif fragments == 'macfrag':
         formulas = collect_fragment_formulas_MacFrag(
             data, fingerprint=True, more_fragments=True, subgraph=False)
+        
         possible_fragments = formulas_to_counts(formulas, adduct)
         assignments = greedy_envelope_hybrid(spectrum, possible_fragments, molecular_ion_mz)
     

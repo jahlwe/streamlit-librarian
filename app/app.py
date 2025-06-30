@@ -21,6 +21,9 @@ import rarfile
 import filetype
 import csv
 import plotly.graph_objects as go
+from rdkit import Chem
+from rdkit.Chem import Draw
+from PIL import Image
 
 # streamlit
 def app():
@@ -352,7 +355,6 @@ def render_lib_precomp():
                     metadata_tsv=st.session_state['metadata_tsv'],
                     mat_data=st.session_state['mat_data'],
                     annotate_fragments=True,
-                    fragment='macfrag',
                     progress_callback=progress_callback
                 )
                 output_buffer = io.StringIO()
@@ -411,7 +413,7 @@ def render_lib_compile():
             st.error(f'Error reading file: {str(e)}')
             st.session_state['precomp_data'] = None
     else:
-        st.session_state['precomp_data'] = None    
+        st.session_state['precomp_data'] = None
         
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -478,14 +480,25 @@ def render_lib_compile():
         selected_compound = compound_keys[selected_idx]
         selected_data = comp_data[selected_compound]
         # PLOT.
-        fig = au.plot_MS2(
-            selected_data['ms2_display'],
-            selected_data['precursor_mz'],
-            title=selected_compound)
-        st.plotly_chart(fig, use_container_width=True)
+        col1, col2 = st.columns([0.75, 0.25], vertical_alignment='center')
+        with col1:
+            fig = au.plot_MS2(
+                selected_data,
+                selected_data['ms2_display'],
+                selected_data['precursor_mz'],
+                title=f'{selected_compound} {selected_data["ion_type"]}')
+            st.plotly_chart(fig, use_container_width=True)
+        with col2:
+            mol = Chem.MolFromSmiles(selected_data['smiles'])
+            if mol is not None:
+                img = Draw.MolToImage(mol)
+                img_bytes = io.BytesIO()
+                img.save(img_bytes, format='PNG')
+                st.image(img_bytes)
+            else:
+                st.write(f'Invalid SMILES: {selected_data["smiles"]}')
 
     # end
-
                 
 if __name__ == '__main__':
     app()
