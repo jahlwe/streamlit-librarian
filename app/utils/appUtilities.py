@@ -30,7 +30,6 @@ import zipfile
 import streamlit as st
 import plotly.graph_objects as go
 import math
-import streamlit_ketcher as st_ketcher
 
 # --- NEEDED STUFF ---
 # use to convert less-complicated storage names of variables
