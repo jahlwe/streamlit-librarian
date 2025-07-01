@@ -132,7 +132,7 @@ def get_mz_noCharge(atom_counts):
 
 def get_molecular_ion_mz(atom_counts, adduct):
     charge = get_charge(adduct)
-    mol_ion_mz = (sum(n * MASSES[a] for a, n in atom_counts.items()) - (charge * E_MASS))/charge
+    mol_ion_mz = (sum(n * MASSES[a] for a, n in atom_counts.items()) - (charge * E_MASS))/ abs(charge) # need abs for neg to work
     return mol_ion_mz
 
 def mass_IsoSpecPy(formula, adduct=None):
@@ -142,7 +142,7 @@ def mass_IsoSpecPy(formula, adduct=None):
     if adduct: # adjust neutral masses from ISP according to charge
         charge = get_charge(adduct)
         if charge != 0:
-            massDist = {((mass - (charge * E_MASS))/charge): prob for mass, prob in isoDist}
+            massDist = {((mass - (charge * E_MASS))/ abs(charge)): prob for mass, prob in isoDist}
         else:
             massDist = {mass: prob for mass, prob in isoDist}
     else:
@@ -526,7 +526,12 @@ def generate_ref_fragments(
     charge = abs(get_charge(adduct))
     
     # get parent mz like this --- if we can't find exp, use theo
-    parent_mz = ms2_data[best_match[0]][0] if best_match[0] is not None else theo_parent_mz
+    parent_mz_list = []
+    parent_mz_list.append(ms2_data[best_match[0]][0] if best_match[0] is not None else theo_parent_mz)
+    # for heavily chlorinated e.g. we have to do this
+    if 'Cl' or 'Br' in parent_atom_count and not best_match[0]:
+        iso_envelope = mass_IsoSpecPy(regenerate_formula_hill(parent_atom_count), adduct)
+        parent_mz_list.append(max(iso_envelope, key=lambda mass: iso_envelope[mass]))
     
     # now, we find out which [precursor-loss] entities to calculate
     compatible_losses = find_compatible_losses(parent_atom_count)
@@ -542,7 +547,7 @@ def generate_ref_fragments(
         # to the observed mz (in cases where we have it)
         # first we need the mz of the loss
         loss_mz = (get_mz_noCharge(loss_count)) / charge # now also considering charge 
-        fragment_mz = round(parent_mz - loss_mz, 5) # keep thinking about this.
+        fragment_mz = round(parent_mz_list[0] - loss_mz, 5) # keep thinking about this.
         fragment_dict[fragment_formula] = {
             'mz':fragment_mz, 'loss':formula, 'source':'ref_fragment'
         }
@@ -563,9 +568,12 @@ def generate_ref_fragments(
     # now we should have all the losses we need for a given compound
     # reformulated as fragments of the parent --- not as the loss itself!
     # ONE MORE THING! include the molecular ion.
-    fragment_dict[regenerate_formula_hill(parent_atom_count)] = {
-        'mz':round(parent_mz, 5), 'loss':None, 'source':'parent'
-    }
+    for i, possible_parent_mz in enumerate(parent_mz_list):
+        # we have to do this --- add a parenthesis to enumerate identical formulas
+        # will it be a problem downstream?
+        fragment_dict[regenerate_formula_hill(parent_atom_count) + f'({i})'] = {
+            'mz':round(possible_parent_mz, 5), 'loss':None, 'source':'parent'
+        }
     return fragment_dict
 
 def generate_more_fragments(
@@ -752,10 +760,9 @@ def match_loss_fragments(
             if best_match_formula:
                 claimed.append(mz)
                 # iso envelope
-                iso_envelope = mass_IsoSpecPy(re.sub(r'[\+-][0-9]*[\+-]*$', '', best_match_formula), adduct)
+                iso_envelope = mass_IsoSpecPy(re.sub(r'(\(\d+\))?[\+-][0-9A-Za-z]*$|(\(\d+\))$', '', best_match_formula), adduct)
                 for j, (iso_mz, iso_intensity) in enumerate(iso_envelope.items()):
-                    if j == 0:
-                        continue
+                    # we don't need to continue if j = 0 here - parent will already be claimed, if the first entry is parent.
                     for k, (mz_k, ai_k, ri_k) in enumerate(ms2_data):
                         if mz_k not in claimed:
                             iso_ppm_dev = abs(calculate_ppm_dev(mz_k, iso_mz))
@@ -773,8 +780,9 @@ def match_loss_fragments(
         if source == 'parent':
             parent_atom_count = apply_adduct(parse_formula(base_formula), adduct)
             theo_parent_mz = get_molecular_ion_mz(parent_atom_count, adduct)
-            actual_ppm = round(calculate_ppm_dev(mz, theo_parent_mz), 2)
-            matched[i] = (mz, formula, match_mz, actual_ppm, ri, source, idx)
+            actual_ppm = round(calculate_ppm_dev(mz, theo_parent_mz), 2) if '(0)' in formula else round(calculate_ppm_dev(mz, match_mz), 2)
+            # also do this to take care of parent-heses
+            matched[i] = (mz, re.sub(r'\(\d+\)', '', formula), match_mz, actual_ppm, ri, source, idx)
     return sorted(matched, key=lambda x: x[6])
 
 def format_annotation(data, match_list):
