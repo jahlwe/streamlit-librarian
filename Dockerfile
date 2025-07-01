@@ -17,6 +17,21 @@ RUN apt-get update && apt-get install --no-install-recommends -y \
     build-essential \
     software-properties-common
 
+# More stuff we need, make RDKit drawing work?
+RUN apt-get update && apt-get install --no-install-recommends -y \
+    build-essential \
+    software-properties-common \
+    libfreetype6-dev \
+    libpng-dev \
+    libboost-all-dev \
+    libeigen3-dev \
+    libcairo2-dev \
+    libsm6 \
+    libxrender1 \
+    libxext6 \
+    libgl1-mesa-glx \
+    && rm -rf /var/lib/apt/lists/*
+
 # Copy all files that the app needs (this will place the files in home/username/)
 COPY app/ $HOME/app/
 # more COPY commands here if you have other files to copy
