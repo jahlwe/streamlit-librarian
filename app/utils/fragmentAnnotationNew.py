@@ -595,6 +595,7 @@ def generate_more_fragments(
     annot_charge = get_charge_annotation(adduct)
     
     # get parent mz like this --- if we can't find exp, use theo
+    # but we don't use it here, do we.
     parent_mz = ms2_data[best_match[0]][0] if best_match[0] is not None else data.get('precursor_mz')
     
     # --- INITIALIZE ---
@@ -649,30 +650,64 @@ def generate_more_fragments(
         }
         
         # ALSO! charged version. if it is valid after adduct atom update.
-        charge_placeholder_adduct = '[M+H]+' if get_charge(adduct) > 0 else '[M-H]-'
-        fragment_count_charged = apply_adduct(fragment_count, charge_placeholder_adduct)
-        if not any(n < 0 for atom, n in fragment_count_charged.items()): # valid, or not?
-            fragment_formula_charged = regenerate_formula_hill(fragment_count_charged)
-            fragment_mz_charged = (fragment_mz + 1.00783 - E_MASS) / charge if get_charge(adduct) > 0 else (fragment_mz - 1.00783 + E_MASS) / charge
-            more_fragments[fragment_formula_charged] = {
-                'mz':fragment_mz_charged, 'loss':loss_formula, 'source': source + '_fragment'
-            }
         
+        # actually --- to cover our butts, it seems we may need to both add and subtract H
+        # we don't always know where the hydrogen will end up and sometimes we miss stuff
+        # because of it
+    
+        for h_modifier in ('[M+H]+', '[M-H]-'): # create plus and minus one H for fragment
+            fragment_count_charged = apply_adduct(copy.deepcopy(fragment_count), h_modifier)
+            if not any(n < 0 for atom, n in fragment_count_charged.items()):
+                fragment_formula_charged = regenerate_formula_hill(fragment_count_charged)
+                # do NOT supply the h_modifier to generate the mz, it will be messed up for 
+                # the -H fragment if we are in pos, and vice versa for neg
+                fragment_mz_charged = round(get_molecular_ion_mz(fragment_count_charged, adduct), 5)
+                more_fragments[fragment_formula_charged] = {
+                    'mz':fragment_mz_charged, 'loss':loss_formula, 'source': source + '_fragment'
+                }
+                
         if loss_mz > 50 and fragment_and_loss:
             loss_fragment_mz = get_molecular_ion_mz(loss_count, adduct)
-            # and we swap places for the formulas from above
             more_fragments[loss_formula] = {
                 'mz':loss_fragment_mz, 'loss':fragment_formula, 'source': source + '_loss'
             }
-            # also! create a charged version --- charge may be iffy.
-            loss_count_charged = apply_adduct(loss_count, charge_placeholder_adduct)
-            if not any(n < 0 for atom, n in loss_count_charged.items()):
-                loss_formula_charged = regenerate_formula_hill(loss_count_charged)
-                loss_fragment_mz_charged = (get_mz_noCharge(loss_count_charged) - E_MASS) / charge if get_charge(adduct) > 0 else (get_mz_noCharge(loss_count_charged) + E_MASS) / charge
-                more_fragments[loss_formula_charged] = {
-                    'mz':loss_fragment_mz_charged, 'loss':fragment_formula, 'source': source + '_loss'
-                }
+            
+            # and again --- we create TWO "charged" versions, depending on H behavior
+            
+            for h_modifier in ('[M+H]+', '[M-H]-'): # create plus and minus one H for fragment
+                loss_count_charged = apply_adduct(copy.deepcopy(loss_count), h_modifier)
+                if not any(n < 0 for atom, n in loss_count_charged.items()):
+                    loss_formula_charged = regenerate_formula_hill(loss_count_charged)
+                    loss_fragment_mz_charged = round(get_molecular_ion_mz(loss_count_charged, adduct), 5)
+                    more_fragments[loss_formula_charged] = {
+                        'mz':loss_fragment_mz_charged, 'loss':fragment_formula, 'source': source + '_loss'
+                    }
+
+        #charge_placeholder_adduct = '[M+H]+' if get_charge(adduct) > 0 else '[M-H]-'
+        #fragment_count_charged = apply_adduct(fragment_count, charge_placeholder_adduct)
+        #if not any(n < 0 for atom, n in fragment_count_charged.items()): # valid, or not?
+        #    fragment_formula_charged = regenerate_formula_hill(fragment_count_charged)
+        #    fragment_mz_charged = (fragment_mz + 1.00783 - E_MASS) / charge if get_charge(adduct) > 0 else (fragment_mz - 1.00783 + E_MASS) / charge
+        #    more_fragments[fragment_formula_charged] = {
+        #        'mz':fragment_mz_charged, 'loss':loss_formula, 'source': source + '_fragment'
+        #    }
+        
+        #if loss_mz > 50 and fragment_and_loss:
+        #    loss_fragment_mz = get_molecular_ion_mz(loss_count, adduct)
+        #    # and we swap places for the formulas from above
+        #    more_fragments[loss_formula] = {
+        #        'mz':loss_fragment_mz, 'loss':fragment_formula, 'source': source + '_loss'
+        #    }
+        #    # also! create a charged version --- charge may be iffy.
+        #    loss_count_charged = apply_adduct(loss_count, charge_placeholder_adduct)
+        #    if not any(n < 0 for atom, n in loss_count_charged.items()):
+        #        loss_formula_charged = regenerate_formula_hill(loss_count_charged)
+        #        loss_fragment_mz_charged = (get_mz_noCharge(loss_count_charged) - E_MASS) / charge if get_charge(adduct) > 0 else (get_mz_noCharge(loss_count_charged) + E_MASS) / charge
+        #        more_fragments[loss_formula_charged] = {
+        #            'mz':loss_fragment_mz_charged, 'loss':fragment_formula, 'source': source + '_loss'
+        #        }
     merged_fragments = {**fragment_dict, **more_fragments}
+    # we could mass filter here but we don't really need to. (sometimes H is in the dict, etc...)
     return merged_fragments
 
 # this one here is a weapon indeed. 
