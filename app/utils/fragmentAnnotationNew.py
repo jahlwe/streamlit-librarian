@@ -717,6 +717,80 @@ def find_possible_fragment_formulas(
             best_match_source = 'swiss_army_knife'
     return best_match_formula, best_match_mz, best_match_ppm, best_match_source
 
+def isotopic_envelope_scoring(match_formula, match_idx, adduct, ms2_data, ppm_threshold=10):
+    # ok. first we generate the iso envelope given our current peak match.
+    cleaned_match_formula = re.sub(r'(\(\d+\))?[\+-][0-9A-Za-z]*$|(\(\d+\))$', '', match_formula)
+    iso_envelope = mass_IsoSpecPy(cleaned_match_formula, adduct)
+    # no probability filtering for now...
+    iso_envelope = [(mz, prob) for mz, prob in iso_envelope.items() if prob > 0]
+    
+    # exp peaks to match against. only extract those with sub-max-envelope masses.
+    # maybe change that to a ppm thing later to add some leeway at the top end.
+    max_env_mz = max(mz for mz, _ in iso_envelope)
+    max_env_mz_leeway = max_env_mz + ((max_env_mz / 1e6) * 10)
+    exp_peaks = [(*data, j) for j, data in enumerate(ms2_data) if j >= match_idx and data[0] <= max_env_mz_leeway]
+    
+    # then we find matches
+    mz_matched_peaks = []
+    claimed_exp_peaks = [] # keep track of this
+    
+    for iso_idx, (iso_mz, prob) in enumerate(iso_envelope):
+        best_match_mz = None
+        best_match_ppm = float('inf')
+        best_match_idx = None
+        for mz_exp, ai_exp, ri_exp, exp_idx in exp_peaks:
+            if mz_exp in claimed_exp_peaks:
+                continue
+            ppm_dev = calculate_ppm_dev(mz_exp, iso_mz)
+            if abs(ppm_dev) < best_match_ppm and abs(ppm_dev) < ppm_threshold:
+                best_match_mz = mz_exp
+                best_match_idx = exp_idx
+                best_match_ppm = ppm_dev
+        if best_match_mz is not None:
+            # create a reconciled mz for matches
+            avg_mz = (iso_mz + best_match_mz) / 2 # actually... we don't need this?
+            mz_matched_peaks.append((best_match_mz, best_match_ppm, iso_idx, best_match_idx))
+            claimed_exp_peaks.append(best_match_mz)
+            
+    if len(mz_matched_peaks) == 0:
+        return 0.0, []
+    
+    # align and score
+    num_iso_peaks = len(iso_envelope)
+    theo_intensities = np.zeros(num_iso_peaks)
+    exp_intensities = np.zeros(num_iso_peaks)
+    
+    # lookup dict for exp (rel) intensities
+    # key = isotopic peak index. value = relative int for experimental peak that was matched to that isotopic peak.
+    matched_exp_intensity = {iso_idx: ms2_data[exp_idx][2] for _, ppm, iso_idx, exp_idx in mz_matched_peaks}
+    
+    # aligned intensity vectors...
+    for i, (mz, intensity) in enumerate(iso_envelope):
+        theo_intensities[i] = intensity
+        exp_intensities[i] = matched_exp_intensity.get(i, 0)
+    
+    # avoid division by zero
+    if np.sum(theo_intensities) == 0 or np.sum(exp_intensities) == 0:
+        return 0.0, []
+        
+    theo_norm = theo_intensities / norm(theo_intensities)    
+    exp_norm = exp_intensities / norm(exp_intensities)
+    cosine_sim = np.dot(theo_norm, exp_norm)
+    
+    # send back which exp peaks to claim as isotopic
+    peaks_to_claim = []
+    if cosine_sim > 0.8:
+        # we need to return
+        # exp mz, formula, iso_mz, ppm dev, exp ri, 'isotopic'
+        # this is a little insane...
+        for mz_exp, ppm, iso_idx, matched_idx in mz_matched_peaks:
+            peaks_to_claim.append(
+                (ms2_data[matched_idx][0], match_formula, round(iso_envelope[iso_idx][0], 5), round(ppm, 2), ms2_data[matched_idx][2], 'isotopic', matched_idx)
+            )
+        return cosine_sim, peaks_to_claim
+    else:
+        return cosine_sim, []
+
 def match_loss_fragments(
     data, loss_dict, ppm_threshold=10, swiss_army_knife=True
 ):
@@ -726,7 +800,8 @@ def match_loss_fragments(
     ms2_data = data.get('ms2_norm')    
     adduct = data.get('ion_type')
     matched = []
-    claimed = [] # for keeping track of isotopic envelope-claimed peaks
+    # for keeping track of isotopic envelope-claimed peaks
+    claimed = [] # maybe change at some point to use indices instead
     frag_annot = get_charge_annotation(adduct)
     
     total_atoms = sum(v for a, v in (parse_formula(base_formula)).items())
@@ -758,23 +833,17 @@ def match_loss_fragments(
             )
             matched.append(match_result)
             if best_match_formula:
-                claimed.append(mz)
-                # iso envelope
-                iso_envelope = mass_IsoSpecPy(re.sub(r'(\(\d+\))?[\+-][0-9A-Za-z]*$|(\(\d+\))$', '', best_match_formula), adduct)
-                for j, (iso_mz, iso_intensity) in enumerate(iso_envelope.items()):
-                    # we don't need to continue if j = 0 here - parent will already be claimed, if the first entry is parent.
-                    for k, (mz_k, ai_k, ri_k) in enumerate(ms2_data):
-                        if mz_k not in claimed:
-                            iso_ppm_dev = abs(calculate_ppm_dev(mz_k, iso_mz))
-                            raw_iso_ppm_dev = calculate_ppm_dev(mz_k, iso_mz)
-                            # we don't have to worry about more than 1 match
-                            # since isotopic patterns shift by Da-ish steps
-                            if iso_ppm_dev < ppm_threshold: 
-                                match_result = (
-                                    mz_k, best_match_formula, round(iso_mz, 5), round(raw_iso_ppm_dev, 2), ri_k, 'isotopic', k
-                                )
-                                matched.append(match_result)
-                                claimed.append(mz_k)
+                claimed.append(mz) # first, add matched peak to claimed list
+                # iso envelope --- now with cosine scoring in a separate helper
+                cos_score, peaks_to_claim = isotopic_envelope_scoring(best_match_formula, idx, adduct, ms2_data)
+                if len(peaks_to_claim) > 0:
+                    for mz_j, formula_j, mz_match_j, ppm_j, ri_j, source_j, idx_j in peaks_to_claim:
+                        if mz_j not in claimed:
+                            claimed.append(mz_j)
+                            match_result = (
+                                mz_j, re.sub(r'\(\d+\)', '', formula_j), mz_match_j, ppm_j, ri_j, source_j, idx_j
+                            )
+                            matched.append(match_result)
     # we need to reformat (or recalculate ppm, rather) a little for the parent entry
     for i, (mz, formula, match_mz, match_ppm, ri, source, idx) in enumerate(matched):
         if source == 'parent':
