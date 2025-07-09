@@ -480,6 +480,23 @@ def read_loss_ref():
 # we seem to be missing ~3 of these, but whatever
 NEUTRAL_LOSS_REF = read_loss_ref()
 
+# also add our own stuff.
+common_fragments = [
+    'C7H7'
+]
+
+def add_common_fragments(fragments, loss_ref):
+    for formula in fragments:
+        atom_counts = parse_formula(formula)
+        mass = get_mz_noCharge(atom_counts)
+        if formula not in loss_ref.keys():
+            loss_ref[formula] = {
+                'mass': round(mass, 5), 'atom_count': atom_counts,
+                'pos': True, 'neg': True}
+    return loss_ref
+
+NEUTRAL_LOSS_REF = add_common_fragments(common_fragments, NEUTRAL_LOSS_REF)
+
 def identify_parent(theo_parent_mz, ms2_data, ppm_threshold=10):
     best_match = (None, None)  # (index, ppm_dev)
     for idx, (mz, abs_int, rel_int) in enumerate(ms2_data):

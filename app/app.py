@@ -28,10 +28,11 @@ from PIL import Image
 # streamlit
 def app():
     st.set_page_config(page_title='librarian', layout='wide')
-
+    st.logo('static/logo.png')
+    
+    # --- MODULES ---
     st.sidebar.title('modules')
     module = st.sidebar.radio('Select:', ['pcq', 'mix', 'lib'])
-    
     # submodules for lib
     if module == 'lib':
         submodule = st.sidebar.radio('Sub-module:', ['pre-assembly', 'assembly'])
@@ -179,21 +180,24 @@ def render_mix():
        
     if dictionary:
         with st.form('mix_form'):
-            num_mixes = st.number_input(
-                'Number of mixes',
-                min_value=2,
-                max_value=1000,
-                value=2,
-                step=1
-            )
-            min_mass_dist = st.number_input(
-                'Minimum mass distance (Da)',
-                min_value=0.001,
-                max_value=1.0,
-                value=0.01,
-                step=0.001,
-                format="%.3f"
-            )
+            col1, col2 = st.columns(2)
+            with col1:
+                num_mixes = st.number_input(
+                    'Number of mixes',
+                    min_value=2,
+                    max_value=1000,
+                    value=2,
+                    step=1
+                )
+            with col2:
+                min_mass_dist = st.number_input(
+                    'Minimum mass distance (Da)',
+                    min_value=0.001,
+                    max_value=1.0,
+                    value=0.01,
+                    step=0.001,
+                    format="%.3f"
+                )
             submitted = st.form_submit_button('run mix')
 
             if submitted:
@@ -258,12 +262,13 @@ def render_lib_precomp():
         """
         - **Pre-assembly**
             - Collates metadata (pcq module-format), experimental settings (manually supplied) and experimental data (.mat)
-            - Outputs an editable sheet with data columns in MassBank-format
+            - Outputs an editable sheet for use in the assembly sub-module
         """
     )
     # init keys for what we need
     input_keys = ['mode', 'pcq_data', 'metadata_tsv', 'mat_data']
-    for key in input_keys + ['output', 'precomp_ready', 'prev_inputs']:
+    optional_input_keys = ['rti_data', 'cf_data']
+    for key in input_keys + optional_input_keys + ['output', 'precomp_ready', 'prev_inputs']:
         if key not in st.session_state:
             st.session_state[key] = None
     
@@ -277,48 +282,87 @@ def render_lib_precomp():
     st.session_state['mode'] = mode
     
     # --- UPLOADS ---
-    pcq_sheet = st.file_uploader('pcq sheet (.csv)', type=['csv', 'xlsx'])
-    preferred_key = 'internalName'
-    if pcq_sheet is not None:
-        try:
-            pcq_data = gu.sheet_to_dict(pcq_sheet, preferred_key)
-            st.session_state['pcq_data'] = pcq_data
-        except Exception as e:
-            st.error(f'Error reading file: {str(e)}')
+    # columns for horizontal layout
+    req_col1, req_col2, req_col3 = st.columns(3, vertical_alignment='top')
+    
+    with req_col1:
+        pcq_sheet = st.file_uploader('pcq sheet (.csv)', type=['csv', 'xlsx'])
+        preferred_key = 'internalName'
+        if pcq_sheet is not None:
+            try:
+                pcq_data = gu.sheet_to_dict(pcq_sheet, preferred_key)
+                st.session_state['pcq_data'] = pcq_data
+            except Exception as e:
+                st.error(f'Error reading file: {str(e)}')
+                st.session_state['pcq_data'] = None
+        else:
             st.session_state['pcq_data'] = None
-    else:
-        st.session_state['pcq_data'] = None
-    
-    metadata_tsv = st.file_uploader('experimental metadata (.tsv)', type=['tsv'])
-    if metadata_tsv is not None:
-        st.session_state['metadata_tsv'] = metadata_tsv
-    else:
-        st.session_state['metadata_tsv'] = None
-    
-    # also - a template that can be downloaded!
-    tsv_content = au.generate_metadata_template()
-    st.download_button(
-        label='Download template (.tsv)',
-        data=tsv_content,
-        file_name='metadata_template.tsv',
-        mime='text/tab-separated-values'
-    )
+            
+    with req_col2:
+        metadata_tsv = st.file_uploader('experimental metadata (.tsv)', type=['tsv'])
+        if metadata_tsv is not None:
+            st.session_state['metadata_tsv'] = metadata_tsv
+        else:
+            st.session_state['metadata_tsv'] = None
+        
+        # also - a template that can be downloaded!
+        tsv_content = au.generate_metadata_template()
+        st.download_button(
+            label='Download template',
+            data=tsv_content,
+            file_name='metadata_template.tsv',
+            mime='text/tab-separated-values'
+        )
     
     # .mat files in .zip format (.rar did not cooperate.)
-    mat_archive = st.file_uploader('.mat files (in .zip)', type=['zip'])
-    if mat_archive is not None:
-        archive_type = filetype.guess(mat_archive.getvalue()).extension
-        mat_files_dict = au.read_archive(mat_archive, archive_type)
-        mat_files_dict = {k: v for k, v in mat_files_dict.items() if (k.endswith('.mat') and f'/{mode}/' in k)}
-        st.info(f'{len(mat_files_dict)} .mat ({mode}) files recognized')
-        if len(mat_files_dict) > 0:
-        # process with app-specific gather_matData
-            mat_data = au.gather_matData_app(mat_files_dict, mode)
-            st.session_state['mat_data'] = mat_data
+    with req_col3:
+        mat_archive = st.file_uploader('.mat files (in .zip)', type=['zip'])
+        if mat_archive is not None:
+            archive_type = filetype.guess(mat_archive.getvalue()).extension
+            mat_files_dict = au.read_archive(mat_archive, archive_type)
+            mat_files_dict = {k: v for k, v in mat_files_dict.items() if (k.endswith('.mat') and f'/{mode}/' in k)}
+            st.info(f'{len(mat_files_dict)} .mat ({mode}) files recognized')
+            if len(mat_files_dict) > 0:
+            # process with app-specific gather_matData
+                mat_data = au.gather_matData_app(mat_files_dict, mode)
+                st.session_state['mat_data'] = mat_data
+            else:
+                st.session_state['mat_data'] = None
         else:
             st.session_state['mat_data'] = None
-    else:
-        st.session_state['mat_data'] = None
+        
+    # RTI & ClassyFire
+    opt_col1, opt_col2, opt_col3 = st.columns(3)
+    
+    with opt_col1:
+        rti_box = st.checkbox('RTI')
+        if rti_box:
+            rti_archive = st.file_uploader('RTI sheets (.csv, in .zip)', type=['zip'])
+            if rti_archive is not None:
+                archive_type = filetype.guess(rti_archive.getvalue()).extension
+                rti_files_dict = au.read_archive_RTI(rti_archive, archive_type)
+                rti_files_dict = {k: v for k, v in rti_files_dict.items() if (k.endswith('.csv') and f'{mode}/' in k)}
+                st.info(f'{len(rti_files_dict)} RTI sheets ({mode}) recognized')
+                if len(rti_files_dict) > 0:
+                    # process.
+                    rti_data = au.gather_RTIData_app(rti_files_dict)
+                    st.session_state['rti_data'] = rti_data
+            else:
+                st.session_state['rti_data'] = None
+        else:
+            st.session_state['rti_data'] = None
+            
+    with opt_col2:
+        cf_box = st.checkbox('ClassyFire')
+        if cf_box:
+            cf_sheet = st.file_uploader('ClassyFire sheet (.csv)', type=['csv'])
+            if cf_sheet is not None:
+                cf_data = gu.sheet_to_dict(cf_sheet, 'InChIKey')
+                st.session_state['cf_data'] = cf_data
+            else:
+                st.session_state['cf_data'] = None
+        else:
+            st.session_state['cf_data'] = None
             
     # --- RESET OUTPUT/STATE IF INPUTS CHANGED ---
     current_inputs = { # track these...
@@ -354,6 +398,9 @@ def render_lib_precomp():
                     pcq_data=st.session_state['pcq_data'],
                     metadata_tsv=st.session_state['metadata_tsv'],
                     mat_data=st.session_state['mat_data'],
+                    # optional RTI and CF
+                    rti_data=st.session_state.get('rti_data'),
+                    cf_data=st.session_state.get('cf_data'),
                     annotate_fragments=True,
                     progress_callback=progress_callback
                 )
@@ -376,6 +423,7 @@ def render_lib_precomp():
             file_name=f'preAssembly_{st.session_state["mode"]}.csv',
             mime='text/csv'
         )
+    # end
     
 def render_lib_compile():
     st.header('lib module; assembly')
@@ -500,6 +548,15 @@ def render_lib_compile():
 
     # end
                 
+# --- UTILITY RENDERS ---
+def render_RTI():
+    st.markdown(
+        """
+            - Generate input sheets for RTI WebApp
+        """
+    )
+    # end
+
 if __name__ == '__main__':
     app()
     

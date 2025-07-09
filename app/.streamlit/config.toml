@@ -1,0 +1,36 @@
+[server]
+enableStaticServing = true
+
+[[theme.fontFaces]]
+family="lato"
+url="app/static/Lato-Light.ttf"
+style="normal"
+weight=300
+
+[[theme.fontFaces]]
+family = "lato"
+url = "app/static/Lato-Regular.ttf"
+style = "normal"
+weight = 400
+
+[[theme.fontFaces]]
+family = "lato"
+url = "app/static/Lato-LightItalic.ttf"
+style = "italic"
+weight = 300
+
+[[theme.fontFaces]]
+family = "lato"
+url = "app/static/Lato-Italic.ttf"
+style = "italic"
+weight = 400
+
+[theme]
+font = "lato"
+headingFont = "lato"
+codeFont = "monospace"
+
+[theme.sidebar]
+font = "lato"
+headingFont = "lato"
+codeFont = "monospace"

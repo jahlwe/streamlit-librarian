@@ -173,6 +173,48 @@ def read_archive(mat_archive, archive_type):
     #                    st.warning(f'Failed to read {name}: {e}')
     return mat_files_dict
 
+def read_archive_RTI(rti_archive, archive_type):
+    rti_files_dict = {}
+    if archive_type == 'zip':
+        with zipfile.ZipFile(rti_archive) as z:
+            for name in z.namelist():
+                if name.endswith('.csv'):
+                    try:
+                        rti_files_dict[name] = io.BytesIO(z.read(name))
+                    except Exception as e:
+                        st.warning(f'Failed to read {name}: {e}')
+    return rti_files_dict
+
+def gather_RTIData_app(rti_files_dict):
+    rti_dictionary = {}
+    for i, (name, file) in enumerate(rti_files_dict.items()):
+        if not hasattr(file, 'name'):
+            file.name = name # need to do this for s2d to get it?
+        current_dict = gu.sheet_to_dict(file, 'Compound Name')
+        rti_dictionary.update(current_dict)
+    return rti_dictionary
+
+def add_cfData_app(dictionary, cf_data):
+    for compound, data in dictionary.items():
+        current_inchikey = data.get('inchikey')
+        if current_inchikey and current_inchikey in cf_data.keys():
+            class_data = cf_data[current_inchikey]
+            # maybe think about this later...
+            if str(class_data['Subclass']) == 'nan':
+                class_string = '; '.join([
+                    str(class_data['Superclass']), str(class_data['Class'])
+                    ])
+                dictionary[compound]['class'] = class_string
+            else:
+                class_string = '; '.join([
+                    str(class_data['Class']), str(class_data['Subclass']),
+                    str(class_data['Parent Level 1'])
+                    ])
+                dictionary[compound]['class'] = class_string
+        else:
+            print(f'no InChIKey match for {compound}')
+    return dictionary
+
 def parse_matFile_app(
     file, 
     dictionary, 
@@ -328,6 +370,8 @@ def preCompile_app(
     pcq_data, 
     metadata_tsv,
     mat_data,
+    rti_data=None,
+    cf_data=None,
     annotate_fragments=True,
     progress_callback=None
 ):
@@ -337,19 +381,13 @@ def preCompile_app(
         dictionary = cu.create_compilation_dictionary(mat_data)
         dictionary = cu.add_chemical_metadata(dictionary, pcq_data)
         dictionary = add_manual_metadata_app(dictionary, metadata_tsv)
-        #if rti:
-        #    rti_dictionary = cu.gather_RTIData(mode)
-        #    dictionary = cu.add_RTIData(dictionary, rti_dictionary)
-        #    del rti_dictionary
-        #    gc.collect()
-        #if classyfire:
-        #    if classyfire == 'm':
-        #        dictionary = cu.manual_classyfire(
-        #            dictionary, 
-        #            'input/classyfire/cf_manual.csv'
-        #        )
-            # elif classyfire == 'a':
-                # CF servers don't work, change this when they do.
+        
+        # optional stuff
+        if rti_data:
+            dictionary = cu.add_RTIData(dictionary, rti_data)
+        if cf_data:
+            dictionary = add_cfData_app(dictionary, cf_data)
+            
     if dictionary:
         total = len(dictionary)
         for i, (compound, data) in enumerate(dictionary.items()):        
@@ -410,8 +448,6 @@ def filter_preComp_app(
                 filtered_dict[compound] = data      
                 
     return filtered_dict
-
-dictionary = gu.sheet_to_dict('preAssembly_pos_newAnnot.csv')
 
 def compileLib_app(
     dictionary,
@@ -499,6 +535,18 @@ def write_compSheet(dictionary):
     df.to_csv(output, index=False)
     return output.getvalue()
 
+# MassBank wants a PARTICULAR FORMAT for natively charged mol formulas
+# lets actually fix it when writing txt files, we want it to be intact
+# when doing stuff prior, like formula annotation
+def reformat_charged_formula(formula):
+    match = re.match(r'^([A-Za-z0-9]+)([+-])(\d*)$', formula)
+    if match:
+        formula_base, sign, number = match.groups()
+        charge = (number if number else '') + sign
+        return f'[{formula_base}]{charge}'
+    else: # if for some reason a non-charged formula is put through the function
+        return formula
+
 def write_txtFile_app(compound, data, field_order=None):
     """
     Adapted helper from compilerUtilities...
@@ -518,6 +566,9 @@ def write_txtFile_app(compound, data, field_order=None):
             # on per-compound basis --- 
             # skip all compSheet columns that don't have values
             continue 
+        if field == 'molecularFormula':
+            output.write(f'{mb_field} {reformat_charged_formula(value)}\n')
+            continue
         if field in ('ms2_peaks', 'ms2_annot'):
             output.write(f'{mb_field} {value}')
             continue

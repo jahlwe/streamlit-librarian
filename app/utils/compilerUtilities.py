@@ -317,7 +317,6 @@ def gather_RTIData(mode, folder_path='input/RTI/'):
     for i, file in enumerate(rti_files):
         current_dict = gu.sheet_to_dict(file, 'Compound Name')
         rti_dictionary.update(current_dict)
-    
     return rti_dictionary
 
 #rti_dictionary = gather_RTIData('pos')
