@@ -38,6 +38,31 @@ def generate_pcq_template():
     writer.writerow(['internal_id', 'name_q', 'cas_q', 'smiles_q', 'cid_q'])
     return output.getvalue()
 
+# --- PCQ RE-QUERY (sheet-based) HELPER ---
+QUERY_FIELDS = ['internal_id', 'name_q', 'cas_q', 'smiles_q', 'cid_q']
+
+def query_dict_from_pcq_input(pcq_input):
+    query_dict = {}
+    for idx, data in pcq_input.items():
+        # only include entries not successfully queried yet
+        if data.get('queried_at'):
+            continue
+        # get updated input & type
+        query_input, query_type = (data.get('queried_as') or (None, None))
+        query_type = query_type + '_q' if query_type else query_type
+        # build dict
+        entry = {field: None for field in QUERY_FIELDS}
+        if query_type in QUERY_FIELDS:
+            entry[query_type] = query_input
+        # allow manual CID to override
+        if data.get('pubchemCID'):
+            entry['cid_q'] = data['pubchemCID']
+        # also keep any assigned internal_id
+        if data.get('internal_id'):
+            entry['internal_id'] = data['internal_id']
+        query_dict[idx] = entry
+    return query_dict
+
 # --- NEEDED STUFF ---
 # use to convert less-complicated storage names of variables
 # to the final massbank-format variable names.

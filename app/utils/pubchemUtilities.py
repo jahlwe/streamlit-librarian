@@ -171,6 +171,13 @@ def safe_getattr(obj, attr, default=None, cast=None):
     except Exception:
         return default
     
+# we need to initialize these to make sure our re-query stuff works as it should
+# just for... proper bookkeeping.
+ALL_PCQ_FIELDS = [
+    'internal_id', 'queried_as', 'queried_at', 'synonyms', 'iupacName',
+    'molecularFormula', 'monoisotopicMass', 'smiles', 'inchi', 'inchikey',
+    'pubchemCID', 'name', 'cas', 'comptoxURL'
+]
 FIELDS = [ # things we get from the Compound objects.
     # (pubchem field name, storage name, default value, optional class)
     ('iupac_name', 'iupacName', ''),
@@ -221,9 +228,9 @@ def pcQueries(query_dict, query_empty_only=True, progress_callback=None):
     # assume a query_dict structure key = number, data = query inputs
     for i, (idx, data) in enumerate(query_dict.items()):
         pc_data = None # initialize pc_data
-        pcq_out[idx] = {} # initialize dict entry for query
+        pcq_out[idx] = {field: None for field in ALL_PCQ_FIELDS} # initialize dict entry for query
         name_q, smiles_q, cid_q, cas_q = data.get('name_q'), data.get('smiles_q'), data.get('cid_q'), data.get('cas_q')
-        # hierarchy of input types --- prioritize cid, then name, then smiles
+        # hierarchy of input types --- prioritize cid, then name, then smiles, then cas
         query_input = cid_q if cid_q else name_q if name_q else smiles_q if smiles_q else cas_q
         query_type = 'cid' if cid_q else 'name' if name_q else 'smiles' if smiles_q else 'cas' if cas_q else None
         
@@ -248,7 +255,7 @@ def pcQueries(query_dict, query_empty_only=True, progress_callback=None):
             pc_data = pcQuery_expanded(query_input, query_type)
             if not pc_data:
                 print(f'no pubchem entry found --- input: [{query_input}], type: [{query_type}]')
-                pcq_out[idx] = {'queried_as': (query_input, query_type)}
+                pcq_out[idx]['queried_as'] = (query_input, query_type)
                 continue
             
             # store query information
@@ -303,7 +310,7 @@ def pcQueries(query_dict, query_empty_only=True, progress_callback=None):
             print('done')
         if progress_callback: # for streamlit...
             progress_callback(i + 1, n_compounds, query_input)
-    
+            
     return pcq_out
         
 #rq_test = gu.sheet_to_dict('output/testReQuery.csv')

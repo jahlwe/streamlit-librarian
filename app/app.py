@@ -79,7 +79,8 @@ def render_pcq():
     
     st.markdown(
         """
-        - Query chemical metadata via __name__, __SMILES__ or __CID__
+        - Query chemical metadata via __name__, __SMILES__ or __CAS__
+            - If a suitable entry is known a priori, __CID__ queries are also supported
         - Query inputs are supplied directly in-browser or by uploading a sheet (.csv, .xlsx)
         - No need for salt (i.e., **X HCl**) pre-cleaning – salts are recognized and parent compound (i.e., **X**) data retrieved instead
         - Use the `internal_id` field if a specific "internal" name should be used for a compound during library assembly
@@ -134,15 +135,30 @@ def render_pcq():
                     for key in 'pcq_output', 'pcq_success':
                         st.session_state[key] = None
                     st.session_state['sheet_name'] = current_name
+                    if any('queried_as' in data for data in st.session_state['pcq_input'].values()):
+                        # if we jump from one module to the next, we will clear the
+                        # stored pcq_dict state --- but we need to retain it to
+                        # make the re-query work nicely. solution --- if we input
+                        # a pcq output sheet as an input, just rebuild the pcq_dict
+                        # accordingly. should work?
+                        # we probably have to specify not to include name_q etc.
+                        EXCLUDE_KEYS = ['name_q', 'cas_q', 'smiles_q', 'cid_q']
+                        st.session_state['pcq_dict'] = {
+                            idx: {k: v for k, v in data.items() if k not in EXCLUDE_KEYS} for idx, data in st.session_state['pcq_input'].items()
+                        }
             except Exception as e:
                 st.error(f'Error reading file: {str(e)}')
     
         if st.session_state['pcq_input']:
             # prepare query dict based on what type of sheet has been uploaded --- fresh template or pcq output
             if any('queried_as' in data for data in st.session_state['pcq_input'].values()):
-                query_dict = {
-                    idx: {'name_q': None, 'cas_q': None, 'smiles_q': None, 'cid_q': data.get('pubchemCID')} for idx, data in st.session_state['pcq_input'].items() if not data.get('queried_at')}
+                # we should also support changing 'queried_as' information for re-queries
+                # which is a little... involved. made a helper in au.
+                query_dict = au.query_dict_from_pcq_input(st.session_state['pcq_input'])
                 st.info(f'{len(query_dict)} compound(s) recognized (re-query)')
+                # old version that only supports manually entered CIDs and not changes to 'queried_as'
+                #query_dict = {
+                #    idx: {'name_q': None, 'cas_q': None, 'smiles_q': None, 'cid_q': data.get('pubchemCID')} for idx, data in st.session_state['pcq_input'].items() if not data.get('queried_at')}
             else:
                 query_dict = st.session_state['pcq_input']
                 st.info(f'{len(query_dict)} compound(s) recognized')

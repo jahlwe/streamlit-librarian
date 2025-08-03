@@ -51,7 +51,8 @@ def convert_value(value):
         value_stripped = value.strip()
         if value_stripped in ('', 'nan', 'NaN', 'None'):
             return None
-        if value_stripped.startswith('[') and value_stripped.endswith(']'):
+        if (value_stripped.startswith('[') and value_stripped.endswith(']')) or \
+            (value_stripped.startswith('(') and value_stripped.endswith(')')):
             # need this to deal with numpy floats
             value_stripped = re.sub(r'np\.float64\(([^)]+)\)', r'\1', value_stripped)
             # deal with inf in lists
