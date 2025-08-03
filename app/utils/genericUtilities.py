@@ -83,9 +83,9 @@ def convert_value(value):
     return value
 
 INTEGER_COLUMNS = ['pubchemCID','pos_count','neg_count','mb_recCount',
-                   'gnps_recCount']
+                   'gnps_recCount','cid_q']
 
-def sheet_to_dict(sheet, preferred_key='internalName'):
+def sheet_to_dict(sheet, preferred_key='internal_id'):
     '''
     Create a dictionary from a sheet-style 
     (.csv, .xlsx) input file.
@@ -111,10 +111,10 @@ def sheet_to_dict(sheet, preferred_key='internalName'):
         print('input file not found.')
         return None
     
-    possible_keys = ['internalName', 'vendorName', 'Name']
+    possible_keys = ['internal_id', 'internalName', 'vendorName', 'Name']
     key_column = preferred_key if preferred_key in in_sheet.columns else next((col for col in possible_keys if col in in_sheet.columns), None)
     if key_column is None:
-        print('no valid name column found (internalName/vendorName/Name)')
+        print('no valid name column found (internal_id/internalName/vendorName/Name)')
         return None
     
     dictionary = {} # convert to dictionary
@@ -190,7 +190,103 @@ def dict_to_sheet(dictionary, file_name=None, fmat='.csv', buffer=None):
             print(f"{save_path} saved.")
         except Exception as e:
             print(f"failed to save file: {e}")
+
+# new helpers for integer-indexed dictionaries.
+# used for pcq.
+
+PCQ_INIT_COLUMNS = [
+    'internal_id', 'name_q', 'cas_q', 'smiles_q', 'cid_q' 
+]
+
+def sheet_to_idx_dict(sheet):
+    try:
+        # need this to work with streamlit
+        if hasattr(sheet, 'name'):
+            if sheet.name.endswith('.csv'):
+                in_sheet = pd.read_csv(sheet)
+            elif sheet.name.endswith('.xlsx'):
+                in_sheet = pd.read_excel(sheet)
+            else:
+                return None
+        # this is for supplying a standard path; CLI
+        elif isinstance(sheet, str):
+            if sheet.endswith('.csv'):
+                in_sheet = pd.read_csv(sheet)
+            elif sheet.endswith('.xlsx'):
+                in_sheet = pd.read_excel(sheet)
+            else:
+                return None
+    except FileNotFoundError:
+        print('input file not found.')
+        return None
     
+    idx_dict = {} # convert to dictionary
+    for idx, row in in_sheet.iterrows():
+        key = idx
+        # no need to condition on pcq --- we only use this for pcq.
+        sub_dict = {pcq_col: None for pcq_col in PCQ_INIT_COLUMNS}
+        for col, val in row.items():
+            # convert integer columns
+            if col in INTEGER_COLUMNS:
+                if isinstance(val, float) and val.is_integer():
+                    sub_dict[col] = int(val)
+                elif isinstance(val, str) and val.isdigit():
+                    sub_dict[col] = int(val)
+                else:
+                    sub_dict[col] = convert_value(val)
+            else:
+                sub_dict[col] = convert_value(val)
+        idx_dict[key] = sub_dict
+        
+    return idx_dict
+
+# this is probably not needed. actually it is needed. to save the pcq.
+# we just use an 'idx_dict'-format for pcq stuff, then we can revert
+# to indexing by name.
+def idx_dict_to_sheet(
+    dictionary, file_name=None, fmat='.csv', buffer=None
+):
+    if not dictionary:
+        print('input dictionary is empty')
+        return None
+    
+    out_sheet = pd.DataFrame.from_dict(dictionary, orient='index')
+    
+    # only thing we need is to move name up front
+    cols = list(out_sheet.columns)
+    if 'internal_id' in cols:
+        cols.remove('internal_id')
+        cols = ['internal_id'] + cols
+        out_sheet = out_sheet[cols]
+    
+    # dealing with files through streamlit 
+    if buffer is not None:
+        if fmat == '.csv':
+            out_sheet.to_csv(buffer, index=False)
+        elif fmat in ['.xlsx', '.xls']:
+            out_sheet.to_excel(buffer, index=False)
+        else:
+            print('unsupported format, use .csv or .xlsx')
+            return None
+        buffer.seek(0)
+        return buffer
+    else:
+        os.makedirs('output', exist_ok=True)
+        save_path = os.path.join('output', file_name + fmat)
+        
+        try:
+            if fmat == '.csv':
+                out_sheet.to_csv(save_path, index=False)
+            elif fmat in ['.xlsx', '.xls']:
+                out_sheet.to_excel(save_path, index=False)
+            else:
+                print("unsupported format, use .csv or .xlsx")
+                return None
+            print(f"{save_path} saved.")
+        except Exception as e:
+            print(f"failed to save file: {e}")
+    # end
+
 # For testing.
 #dictionary = sheet_to_dict('input/compoundList.xlsx')
 #dictionary = sheet_to_dict('output/pcq_out.csv')

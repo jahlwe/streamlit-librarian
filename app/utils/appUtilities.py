@@ -31,6 +31,13 @@ import streamlit as st
 import plotly.graph_objects as go
 import math
 
+# --- PCQ SHEET TEMPLATE ---
+def generate_pcq_template():
+    output = io.StringIO()
+    writer = csv.writer(output, delimiter=',', lineterminator='\n')
+    writer.writerow(['internal_id', 'name_q', 'cas_q', 'smiles_q', 'cid_q'])
+    return output.getvalue()
+
 # --- NEEDED STUFF ---
 # use to convert less-complicated storage names of variables
 # to the final massbank-format variable names.
@@ -46,7 +53,7 @@ FIELD_CONVERSION = {
     'copyright': 'COPYRIGHT:',
     'comment_1': 'COMMENT:', # add more as needed
     'comment_2': 'COMMENT:',
-    'internalName': 'CH$NAME:',
+    'internal_id': 'CH$NAME:',
     'iupacName': 'CH$NAME:',
     'class': 'CH$COMPOUND_CLASS:',
     'molecularFormula': 'CH$FORMULA:',
@@ -88,7 +95,7 @@ FIELD_CONVERSION = {
 # annoying, but must do this...
 mastersheet_field_conversion = FIELD_CONVERSION.copy()
 mastersheet_field_conversion['comment_2'] = 'COMMENT: (2)'
-mastersheet_field_conversion['internalName'] = 'CH$NAME:'
+mastersheet_field_conversion['internal_id'] = 'CH$NAME:'
 mastersheet_field_conversion['iupacName'] = 'CH$NAME: (IUPAC)'
 MASTERSHEET_COLUMNS = {
     'file_name': 'File_name',
@@ -140,7 +147,7 @@ MAT_FIELDS = {
     'PRECURSORMZ:': 'precursor_mz',
     'PRECURSORTYPE:': 'ion_type',
     'IONMODE:': 'ion_mode',
-    'NAME:': 'internalName',
+    'NAME:': 'internal_id',
     'Num Peaks:': 'num_peak'
 }
 
@@ -243,7 +250,7 @@ def parse_matFile_app(
                     feature_index += 1
                     current_compound = f'{base_name} feature no. {feature_index}'
                 
-                current_record = {'keyColumn': 'internalName'}
+                current_record = {'keyColumn': 'internal_id'}
                 continue
             
             for field, storage in MAT_FIELDS.items():
@@ -552,7 +559,7 @@ def write_txtFile_app(compound, data, field_order=None):
     Adapted helper from compilerUtilities...
     Returns full .txt file layout as a string.
     """
-    data['internalName'] = compound # do we still need this? keep 4 now...
+    data['internal_id'] = compound # do we still need this? keep 4 now...
     output = io.StringIO()
     fields = field_order if field_order else FIELD_CONVERSION.keys()
     for field in fields:
@@ -560,7 +567,7 @@ def write_txtFile_app(compound, data, field_order=None):
         if not mb_field:
             continue
         value = data.get(field)
-        if field == 'internalName' and value:
+        if field == 'internal_id' and value:
             value = re.sub(r' feature no\. \d+$', '', value)
         if value is None or str(value) == 'nan':
             # on per-compound basis --- 

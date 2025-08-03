@@ -30,7 +30,7 @@ MAT_FIELDS = {
     'PRECURSORMZ:': 'precursor_mz',
     'PRECURSORTYPE:': 'ion_type',
     'IONMODE:': 'ion_mode',
-    'NAME:': 'internalName',
+    'NAME:': 'internal_id',
     'Num Peaks:': 'num_peak'
 }
 
@@ -48,7 +48,7 @@ FIELD_CONVERSION = {
     'copyright': 'COPYRIGHT:',
     'comment_1': 'COMMENT:', # add more as needed
     'comment_2': 'COMMENT:',
-    'internalName': 'CH$NAME:',
+    'internal_id': 'CH$NAME:',
     'iupacName': 'CH$NAME:',
     'class': 'CH$COMPOUND_CLASS:',
     'molecularFormula': 'CH$FORMULA:',
@@ -103,7 +103,7 @@ STORAGE_FIELDS = [
 # annoying, but must do this...
 mastersheet_field_conversion = FIELD_CONVERSION.copy()
 mastersheet_field_conversion['comment_2'] = 'COMMENT: (2)'
-mastersheet_field_conversion['internalName'] = 'CH$NAME:'
+mastersheet_field_conversion['internal_id'] = 'CH$NAME:'
 mastersheet_field_conversion['iupacName'] = 'CH$NAME: (IUPAC)'
 MASTERSHEET_COLUMNS = {
     'file_name': 'File_name',
@@ -151,7 +151,7 @@ def parse_matFile(
                     feature_index += 1
                     current_compound = f'{base_name} feature no. {feature_index}'
                 
-                current_record = {'keyColumn': 'internalName'}
+                current_record = {'keyColumn': 'internal_id'}
                 continue
             
             for field, storage in MAT_FIELDS.items():
@@ -220,7 +220,7 @@ def create_compilation_dictionary(mat_dictionary):
         for col in dictionary[compound]:
             if compound in mat_dictionary and col in mat_dictionary[compound]:
                 dictionary[compound][col] = mat_dictionary[compound][col]
-        dictionary[compound]['internalName'] = compound
+        dictionary[compound]['internal_id'] = compound
     return dictionary
 
 #dictionary = create_compilation_dictionary(dictionary)
@@ -570,7 +570,7 @@ def write_txtFile(compound, data, save_path, field_order=None):
     '''
     Helper for create_txtFiles --- writes a single .txt file from dictionary data.
     '''
-    data['internalName'] = compound # need to make this explicit
+    data['internal_id'] = compound # need to make this explicit
     with open(save_path, 'w', encoding='utf-8') as f:
         fields = field_order if field_order else FIELD_CONVERSION.keys()
         for field in fields:
@@ -578,13 +578,16 @@ def write_txtFile(compound, data, save_path, field_order=None):
             if not mb_field:
                 continue
             value = data.get(field)
-            if field == 'internalName' and value:
+            if field == 'internal_id' and value:
                 value = re.sub(r' feature no\. \d+$', '', value)
             if field == 'ion_mode' and value: # mode should be CAPITALIZED. for MassBank.
                 f.write(f'{mb_field} {value.upper()}\n')
                 continue
             if field == 'molecularFormula':
-                f.write(f'{mb_field} {reformat_charged_formula(value)}\n')
+                if value:
+                    f.write(f'{mb_field} {reformat_charged_formula(value)}\n')
+                else:
+                    f.write(f'{mb_field}\n')
                 continue
             if value is None or str(value) == 'nan':
                 continue

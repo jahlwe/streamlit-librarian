@@ -17,9 +17,13 @@ import time
 from datetime import datetime 
 import json
 import math
+import copy
 
 BASE_URL = "https://pubchem.ncbi.nlm.nih.gov/rest/pug_view/data"
 ENDPOINT_TEMPLATE = f"{BASE_URL}/compound/{{compound_cid}}/JSON"
+
+CAS_BASE_URL = "https://pubchem.ncbi.nlm.nih.gov/rest/pug"
+CAS_ENDPOINT_TEMPLATE = f"{CAS_BASE_URL}/compound/name/{{cas_number}}/cids/JSON"
 
 def is_empty(val):
     '''
@@ -53,7 +57,7 @@ def deep_get(d, keys, default=None):
             return default
     return d
 
-def special_pcp_findParent(compound, compound_cid):
+def special_pcp_findParent(query_input, compound_cid):
     '''
     Finds parent structures in PubChem entries.
     '''
@@ -80,7 +84,7 @@ def special_pcp_findParent(compound, compound_cid):
                 ).split(' ')[1]
             )
         except Exception:
-            print(f'cannot find parent structure for {compound}')
+            print(f'cannot find parent structure for {query_input}')
             return None
     return parent_cid
 
@@ -91,13 +95,14 @@ def special_pcp_metadata(compound_cid):
     endpoint = ENDPOINT_TEMPLATE.format(compound_cid=compound_cid)
     response = requests.get(endpoint)
     data = response.json()
-    dictionary = {}
+    special_request_dict = {}
 
     if 'Fault' in data:
         print(f'error retrieving PUG view data for compound {compound_cid}')
         return None
     else:
-        dictionary['Name'] = deep_get(data, ['Record', 'RecordTitle']) # record title
+        # get name here, while we're already doing a PUG request
+        special_request_dict['name'] = data['Record']['RecordTitle']
         
         cas_number = deep_get(data, [
             'Record',
@@ -111,9 +116,26 @@ def special_pcp_metadata(compound_cid):
             lambda l: next((i for i in l if i.get('SourceName') == 'EPA DSSTox'), {}), 
             'SourceID'])
         
-        dictionary['cas'] = cas_number if cas_number else None
-        dictionary['comptoxURL'] = comptox_url if comptox_url else None
-    return dictionary
+        special_request_dict['cas'] = cas_number if cas_number else None
+        special_request_dict['comptoxURL'] = comptox_url if comptox_url else None
+    return special_request_dict
+
+def casQuery_getCID(cas_input):
+    '''
+    Custom solution for querying CAS numbers.
+    What we do is that we find the most relevant CID for a given
+    CAS number, we return it and simply do a "normal" CID-based query.
+    '''
+    endpoint = CAS_ENDPOINT_TEMPLATE.format(cas_number=cas_input)
+    response = requests.get(endpoint)
+    data = response.json()
+    
+    if 'Fault' in data:
+        print(f'no corresponding CID found for CAS input {cas_input}')
+        return None
+    else:
+        cid_from_cas = deep_get(data, ['IdentifierList', 'CID'])[0]
+    return cid_from_cas 
 
 def nameCleaner_special(compound_name):
     '''
@@ -136,31 +158,6 @@ def nameCleaner(compound_name):
     basic version for PW-FDA.
     '''
     return re.sub(r'^(?:\([^)]+\)-?){1,2}', '', compound_name)
-
-def pcQuery(compound, query_input, query_type='name', pc_data=None):
-    '''
-    Querying PubChem --- identifies parents via SMILES,
-    and re-queries with non-salt form if a parent is found.
-    '''
-    # ORIGINAL QUERY
-    pc_query = pcp.get_compounds(query_input, query_type)
-    if pc_query:
-        pc_data = pc_query[0] 
-        smiles = pc_data.canonical_smiles
-        cid = pc_data.cid
-        if smiles and '.' in smiles:
-            parent_cid = special_pcp_findParent(compound, cid)
-            if parent_cid:
-                pc_data = None
-                # RE-QUERY (if salt)
-                pc_query = pcp.get_compounds(parent_cid, 'cid')
-                if pc_query:
-                    pc_data = pc_query[0]
-                    return pc_data
-                else:
-                    print(f'no parent found for salt {compound}')
-                    pc_data = None
-    return pc_data
 
 def safe_getattr(obj, attr, default=None, cast=None):
     '''
@@ -186,109 +183,128 @@ FIELDS = [ # things we get from the Compound objects.
     ('cid', 'pubchemCID', '', int),
 ]
 
-def pcQueries(dictionary, query_empty_only=True, progress_callback=None):
-    n_compounds = len(dictionary.keys())
-    for i, (compound, data) in enumerate(dictionary.items()):
-        pc_data = None # added this to ensure no re-use of previous compound data when queries fail...
-        if not is_empty(data.get('pcQueried')) and query_empty_only:
+def pcQuery_expanded(query_input, query_type, pc_data=None):
+    if not query_type in ('name', 'smiles', 'cid'):
+        print(f'invalid query --- input: [{query_input}] type: [{query_type}]')
+        return None
+    pcq = pcp.get_compounds(query_input, query_type)
+    if pcq:
+        pc_data = pcq[0]
+        # need to do this, something has changed with how PC stores SMILES
+        smiles_list = [i.get('value').get('sval') for i in pc_data.to_dict().get('record').get('props') if i['urn']['label'] == 'SMILES' and i['urn']['name'] == 'Absolute']
+        smiles = smiles_list[0] if smiles_list else None
+        cid = pc_data.cid
+        parent_cid = None
+        if smiles and '.' in smiles:
+            # we can also change special_pcp_findParent to not require
+            # a 'compound' input --- it fills no major function, anyway
+            parent_cid = special_pcp_findParent(query_input, cid)
+            if parent_cid:
+                pc_data = None # reset pc_data variable if parent
+                pcq = pcp.get_compounds(parent_cid, 'cid')
+                if pcq:
+                    pc_data = pcq[0]
+                else:
+                    print(f'no parent found for salt --- input: {query_input}')
+                    return None
+
+        # used to get recordTitle here --- but do that in the special request instead.
+        return pc_data
+    else:
+        print(f'no pubchem entry found --- input: [{query_input}] type: [{query_type}]')
+        return None
+
+def pcQueries(query_dict, query_empty_only=True, progress_callback=None):
+    n_compounds = len(query_dict.keys())
+    pcq_out = {} # create a dictionary to store data in an organized format
+    print(f'running pcq for {n_compounds} compounds')
+    # assume a query_dict structure key = number, data = query inputs
+    for i, (idx, data) in enumerate(query_dict.items()):
+        pc_data = None # initialize pc_data
+        pcq_out[idx] = {} # initialize dict entry for query
+        name_q, smiles_q, cid_q, cas_q = data.get('name_q'), data.get('smiles_q'), data.get('cid_q'), data.get('cas_q')
+        # hierarchy of input types --- prioritize cid, then name, then smiles
+        query_input = cid_q if cid_q else name_q if name_q else smiles_q if smiles_q else cas_q
+        query_type = 'cid' if cid_q else 'name' if name_q else 'smiles' if smiles_q else 'cas' if cas_q else None
+        
+        # if we are querying with a name, clean it
+        if name_q and not cid_q:
+            query_input = nameCleaner(name_q) if str(name_q) != 'nan' else name_q
+        
+        # hmm... think about this one.
+        if not is_empty(data.get('queried_at')) and query_empty_only:
             continue
-        if data.get('queryName', None): # use queryName if the column exists
-            name = data.get('queryName')
-        else:
-            name = data.get('internalName')
-        query_name = nameCleaner(name) if name and str(name) != 'nan' else nameCleaner(compound)
-            
+        
+        # little sidestep to deal with cas inputs. we get the CID, and change the query type.
+        if query_type == 'cas' and cas_q:
+            cas_from_cid = casQuery_getCID(cas_q)
+            if cas_from_cid and str(cas_from_cid).isdigit():
+                query_input, query_type = cas_from_cid, 'cid'
+            else:
+                query_input, query_type = None
+        
         # now helper function for querying
         try:
-            pc_data = pcQuery(compound, query_name)
+            pc_data = pcQuery_expanded(query_input, query_type)
             if not pc_data:
-                print(f'no data retrieved for {compound}')
-                data['pcQueried'] = None
+                print(f'no pubchem entry found --- input: [{query_input}], type: [{query_type}]')
+                pcq_out[idx] = {'queried_as': (query_input, query_type)}
                 continue
             
-            data['pcQueryName'] = query_name
-            data['pcQueried'] = datetime.now().strftime('%H:%M:%S %d/%m/%Y')
+            # store query information
+            pcq_out[idx]['queried_as'] = (query_input, query_type)
+            pcq_out[idx]['queried_at'] = datetime.now().strftime('%H:%M:%S %d/%m/%Y')
             
             # synonyms
             current_synonyms = safe_getattr(pc_data, 'synonyms', [])
-            data['altNames'] = [v.lower() for v in current_synonyms if not re.match(
+            pcq_out[idx]['synonyms'] = [v.lower() for v in current_synonyms if not re.match(
                 r'^(?=.*\d)(?=.*[A-Z\W])[\dA-Z\W]+$', v)]
             
             # others - now with helper
             for attr, key, default, *cast in FIELDS:
-                data[key] = safe_getattr(pc_data, attr, default, *cast)
-                
-            cid = data.get('pubchemCID')
+                pcq_out[idx][key] = safe_getattr(pc_data, attr, default, *cast)
+            
+            # 250713 --- pubchem is messing around with SMILES.
+            # it is None in pcp-objects. temporary solution:
+            smiles_list = [
+                i.get('value').get('sval') for i in pc_data.to_dict().get('record').get('props') if i['urn']['label'] == 'SMILES' and i['urn']['name'] == 'Absolute'
+            ]
+            pcq_out[idx]['smiles'] = smiles_list[0] if smiles_list else None
+            
+            # use CID for special requests
+            cid = pcq_out[idx].get('pubchemCID')
             
             if cid:
                 try:
                     special_results = special_pcp_metadata(cid)
                     if special_results:
-                        data.update(special_results)
+                        pcq_out[idx].update(special_results)
                 except Exception:
                     pass
+                
+            # decide internal_id
+            internal_id = data.get('internal_id')
+            pcq_out[idx]['internal_id'] = internal_id if internal_id else pcq_out[idx]['name']
+                
         except Exception as e:
-            print(f'{type(e).__name__} while querying {compound}, exiting.')
+            # need to change this, later.
+            # probably what will be useful when connection errors happen
+            # need to make sure pcq_out will contain all query input types
+            # in a list, even for those that didn't make the query
+            print(f'{type(e).__name__} while querying {query_input}, exiting')
             fname = 'output/pcq_intermediate'
-            gu.dict_to_sheet(dictionary, fname)
+            gu.dict_to_sheet(pcq_out, fname)
             break
 
-        if i % 5 == 0 and i != 0:
-            print(f'processed {i} of {n_compounds} compounds')
+        if (i + 1) % 5 == 0 and idx != 0:
+            print(f'processed {i+1} of {n_compounds} compounds')
         if i == n_compounds - 1:
             print(f'processed {i+1} of {n_compounds} compounds')
             print('done')
         if progress_callback: # for streamlit...
-            progress_callback(i + 1, n_compounds, compound)
-    return dictionary
-
-def reQuery_CID(dictionary, query_empty_only=True):
-    '''
-    Re-query PubChem for missing data after manually 
-    adding a CID to compounds with otherwise missing 
-    data in the output file from pcQueries.
-    '''
-    for i, (compound, data) in enumerate(dictionary.items()):
-        if not is_empty(data.get('pcQueried')) and query_empty_only:
-            continue
-        cid = data.get('pubchemCID')
-        if not cid:
-            print(f'missing CID for {compound} --- cannot re-query')
-            continue
-        try:
-            print(f'querying by CID for {compound}')
-            pc_data = pcQuery(compound, cid, query_type='cid')
-            if not pc_data:
-                print(f'no data retrieved for {compound}')
-                data['pcQueried'] = None
-                continue
-            
-            data['pcQueryName'] = str(cid)
-            data['pcQueried'] = datetime.now().strftime('%H:%M:%S %d/%m/%Y')
-            
-            # synonyms
-            current_synonyms = safe_getattr(pc_data, 'synonyms', [])
-            data['altNames'] = [v.lower() for v in current_synonyms if not re.match(
-                r'^(?=.*\d)(?=.*[A-Z\W])[\dA-Z\W]+$', v)]
-            
-            # others - now with helper
-            for attr, key, default, *cast in FIELDS:
-                data[key] = safe_getattr(pc_data, attr, default, *cast)
-            
-            if cid:
-                try:
-                    special_results = special_pcp_metadata(cid)
-                    if special_results:
-                        data.update(special_results)
-                except Exception:
-                    pass
-        except Exception as e:
-            print(f'{type(e).__name__} while querying {compound}, exiting.')
-            fname = 'output/pcq_reQuery_intermediate'
-            gu.dict_to_sheet(dictionary, fname)
-            break
-        
-    return dictionary
+            progress_callback(i + 1, n_compounds, query_input)
+    
+    return pcq_out
         
 #rq_test = gu.sheet_to_dict('output/testReQuery.csv')
 #rq_test = reQuery_CID(rq_test)
