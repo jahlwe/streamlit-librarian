@@ -32,7 +32,7 @@ def app():
     
     # --- MODULES ---
     st.sidebar.title('modules')
-    module = st.sidebar.radio('Select:', ['pcq', 'mix', 'lib', 'readme'])
+    module = st.sidebar.radio('Select:', ['pcq', 'mix', 'lib', 'utilities', 'readme'])
     # submodules for lib
     if module == 'lib':
         submodule = st.sidebar.radio('Sub-module:', ['pre-assembly', 'assembly'])
@@ -70,6 +70,8 @@ def app():
             render_lib_precomp()
         elif submodule == 'assembly':
             render_lib_compile()
+    elif module == 'utilities':
+        render_utilities()
     elif module == 'readme':
         render_readme()
     
@@ -286,7 +288,7 @@ def render_mix():
     
     sheet = st.file_uploader(label='pcq sheet', type=['csv', 'xlsx'],
                              label_visibility='collapsed')
-    preferred_key = 'internalName'
+    preferred_key = 'internal_id'
     dictionary = None
     
     # need to initialize "session state variables" to keep things
@@ -423,7 +425,7 @@ def render_lib_precomp():
     
     with req_col1:
         pcq_sheet = st.file_uploader('pcq sheet (.csv)', type=['csv', 'xlsx'])
-        preferred_key = 'internalName'
+        preferred_key = 'internal_id'
         if pcq_sheet is not None:
             try:
                 pcq_data = gu.sheet_to_dict(pcq_sheet, preferred_key)
@@ -456,12 +458,13 @@ def render_lib_precomp():
         if mat_archive is not None:
             archive_type = filetype.guess(mat_archive.getvalue()).extension
             mat_files_dict = au.read_archive(mat_archive, archive_type)
-            mat_files_dict = {k: v for k, v in mat_files_dict.items() if (k.endswith('.mat') and f'/{mode}/' in k)}
+            mat_files_dict = {k: v for k, v in mat_files_dict.items() if (k.endswith('.mat') and f'{mode}/' in k)}
             st.info(f'{len(mat_files_dict)} .mat ({mode}) files recognized')
             if len(mat_files_dict) > 0:
             # process with app-specific gather_matData
                 mat_data = au.gather_matData_app(mat_files_dict, mode)
                 st.session_state['mat_data'] = mat_data
+                print(mat_data)
             else:
                 st.session_state['mat_data'] = None
         else:
@@ -586,10 +589,11 @@ def render_lib_compile():
     
     # --- INPUT ---
     precomp_sheet = st.file_uploader('pre-assembly sheet', type=['csv', 'xlsx'])
-    preferred_key = 'internalName'
+    preferred_key = 'internal_id'
     if precomp_sheet is not None:
         try:
             precomp_data = gu.sheet_to_dict(precomp_sheet, preferred_key)
+            print(precomp_data)
             # filter here, by default --- for now.
             precomp_data = au.filter_preComp_app(precomp_data, mode) 
             st.session_state['precomp_data'] = precomp_data
@@ -685,6 +689,95 @@ def render_lib_compile():
     # end
                 
 # --- UTILITY RENDERS ---
+def render_utilities():
+    st.header('utilities')
+    # initialize session variables
+    rti_keys = ['rti_pcq_data', 'rti_exp_data']
+    for key in rti_keys:
+        if key not in st.session_state:
+            st.session_state[key] = None
+    
+    # first, RTI
+    st.markdown(
+        """
+        **RTI web app sheet generator**  
+        Upload a pcq sheet and a .zip archive of experimental data
+        to generate .csv sheets for input into the RTI web app
+        """
+    )
+    
+    rti_col1, rti_col2, rti_col3 = st.columns([1,2,2], vertical_alignment='top')
+    
+    with rti_col1:
+        mode = st.radio(
+            'ionization mode',
+            options=['pos', 'neg'],
+            index=0,  # default selection
+            horizontal=False
+        )
+        st.session_state['mode'] = mode
+        
+    with rti_col2:
+        pcq_sheet = st.file_uploader(label='pcq sheet', type=['csv', 'xlsx'],
+                                 label_visibility='collapsed')
+        if pcq_sheet is not None:
+            try:
+                pcq_data = gu.sheet_to_dict(pcq_sheet)
+                st.session_state['rti_pcq_data'] = pcq_data
+            except:
+                pass
+            
+    with rti_col3:
+        exp_archive = st.file_uploader('experimental data (.mat, in .zip)', type=['zip'],
+                                       label_visibility='collapsed')
+        if exp_archive is not None:
+            archive_type = filetype.guess(exp_archive.getvalue()).extension
+            exp_files_dict = au.read_archive(exp_archive, archive_type)
+            exp_files_dict = {k: v for k, v in exp_files_dict.items() if (k.endswith('.mat') and f'{mode}/' in k)}
+            st.info(f'{len(exp_files_dict)} .mat ({mode}) files recognized')
+            if len(exp_files_dict) > 0:
+            # process with app-specific gather_matData
+                exp_data = au.gather_matData_app(exp_files_dict, mode)
+                st.session_state['rti_exp_data'] = exp_data
+                print(exp_data)
+            else:
+                st.session_state['rti_exp_data'] = None
+        else:
+            st.session_state['rti_exp_data'] = None
+            
+    # ready check for RTI sheet generation
+    rti_ready = all(st.session_state[k] is not None for k in rti_keys)
+    if rti_ready:
+        if st.button('generate RTI sheet(s)'):
+            try:
+                rti_dict = cu.create_compilation_dictionary(st.session_state['rti_exp_data'])
+                rti_dict = cu.add_chemical_metadata(rti_dict, st.session_state['rti_pcq_data'])
+                csv_sheet_dict = au.generate_rtiSheets_app(rti_dict)
+                if len(csv_sheet_dict) > 0:
+                    # get csv files into an archive and make it downloadable
+                    zip_buffer = io.BytesIO() # use this
+                    with zipfile.ZipFile(zip_buffer, mode='w', compression=zipfile.ZIP_DEFLATED) as zf:
+                        for filename, csv_content in csv_sheet_dict.items():
+                            fname = f'{filename}.csv' if not filename.endswith('.csv') else filename
+                            zf.writestr(fname, csv_content)
+                    # return buffer cursor after wrting
+                    zip_buffer.seek(0)
+                    
+                    st.download_button(
+                        label='download RTI sheet(s) (.zip)',
+                        data=zip_buffer,
+                        file_name='rti_sheets.zip',
+                        mime='application/zip')
+                else:
+                    st.warning('error --- no .csv sheets generated')
+            except Exception as e:
+                st.error(f"Error during assembly: {e}")
+                st.session_state['rti_output'] = None
+                
+    # ----
+    
+    # end
+
 def render_readme():
     # "header"
     st.image(
@@ -710,92 +803,9 @@ def render_readme():
         
         """
     )
-    
-
-def render_RTI():
-    st.markdown(
-        """
-            - Generate input sheets for RTI WebApp
-        """
-    )
     # end
 
 if __name__ == '__main__':
     app()
     
 # streamlit run stapp.py 
-
-def render_pcq_safekeep():
-    st.header('pcq module')
-    st.caption('Batch query of chemical metadata via PubChem')
-    st.markdown(
-        """
-        - Requires an `internalName` column in sheet with unique compound names (i.e., avoid duplicate names)
-        - A column `queryName` can be provided if a name other than the internalName should be used for querying
-        - No need for salt (i.e., **X HCl**) pre-cleaning – salts are recognized and parent compound (i.e., **X**) data retrieved instead
-        """
-    )
-    
-    pcq_submodule = st.radio(
-        'Select',
-        ('in-browser', 'from sheet'),
-        horizontal=True,
-        label_visibility='collapsed'
-    )
-    
-    # ---- FROM SHEET ----
-    if pcq_submodule == 'from sheet':
-        # initialize session state variables
-        session_keys = ['pcq_dictionary', 'pcq_output', 'pcq_success']
-        for key in session_keys:
-            if key not in st.session_state:
-                st.session_state[key] = None
-                
-        
-    
-        sheet = st.file_uploader(label='sheet', type=['csv', 'xlsx'], 
-                                 label_visibility='collapsed')
-    
-        # clears state when an uploaded file is removed
-        if sheet is None:
-            if any(st.session_state[key] is not None for key in session_keys):
-                for key in session_keys:
-                    st.session_state[key] = None
-                st.rerun()
-        else:
-            try:
-                dictionary = gu.sheet_to_idx_dict(sheet)
-                st.info(f'{len(dictionary)} compounds recognized')
-                st.session_state['pcq_dictionary'] = dictionary
-            except Exception as e:
-                st.error(f'Error reading file: {str(e)}')
-                st.session_state['pcq_dictionary'] = None
-    
-        dictionary = st.session_state['pcq_dictionary']
-    
-        if dictionary:
-            with st.form(key='pcq_form'):
-                submitted = st.form_submit_button('run pcq')
-                if submitted:
-                    progress_bar = st.progress(0)
-                    status_text = st.empty()
-                    def progress_callback(current, total, compound):
-                        progress_bar.progress(current / total)
-                        status_text.text(f'Processing {current}/{total} : {compound}')
-                    try:
-                        dictionary = pu.pcQueries(dictionary, progress_callback=progress_callback)
-                        output = io.BytesIO()
-                        gu.idx_dict_to_sheet(dictionary, buffer=output)
-                        output.seek(0)
-                        st.session_state['pcq_output'] = output
-                        st.session_state['pcq_success'] = True
-                    except Exception as e:
-                        st.error(f'Error: {str(e)}')
-                        st.session_state['pcq_success'] = False
-    
-        # Display download button if processing was successful
-        if st.session_state.get('pcq_success'):
-            st.success('pcq complete!')
-            if st.session_state['pcq_output']:
-                st.download_button('download results', st.session_state['pcq_output'].getvalue(),
-                                   file_name='pcq_out.csv')

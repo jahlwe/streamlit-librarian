@@ -315,7 +315,7 @@ def parse_matFile_app(
 def gather_matData_app(mat_files_dict, mode):
     mat_dictionary = {}
     for name, file_obj in mat_files_dict.items():
-        if f'/{mode}/' in name:
+        if f'{mode}/' in name:
             # folder names are retained, so use it for mode filtering
             mat_dictionary = parse_matFile_app(file_obj, mat_dictionary, mode)
     return mat_dictionary
@@ -703,3 +703,47 @@ def plot_MS2(data, ms2_display, precursor_mz, title='placeholder'):
         template='simple_white'
     )
     return fig
+
+# ---- UTILITY STUFF ----
+def generate_rtiSheets_app(compound_dict):
+    # store sheets here
+    sheet_dict = {}
+    
+    # setup
+    batch_size = 50
+    n_sheets = 1
+    
+    # "legacy" filtering, but keepit for now...
+    compounds = [k for k in compound_dict if 'candidate' not in k.lower()]
+
+    for batch_start in range(0, len(compounds), batch_size):
+        batch = compounds[batch_start:batch_start + batch_size]
+        rows = []
+        for i, compound in enumerate(batch, start=batch_start + 1):
+            entry = compound_dict[compound]
+            smiles = entry.get('smiles', '')
+            if smiles == '':
+                print(f'no SMILES found for {compound}, sheet {n_sheets}, please add manually')
+            row = {
+                'MolID': i,
+                'Compound Name': compound,
+                'CAS_RN': entry.get('cas', ''),
+                'SMILES': smiles,
+                'tR(min)': entry.get('retention_time', '')
+            }
+            rows.append(row)
+        
+        # generate sheet, do the buffer thing
+        rti_sheet = pd.DataFrame(rows, columns=['MolID', 'Compound Name', 'CAS_RN', 'SMILES', 'tR(min)'])
+        
+        output = io.StringIO()
+        rti_sheet.to_csv(output, index=False)
+        csv_content = output.getvalue()
+        output.close()
+        
+        # store the content
+        sheet_dict[f'sheet_{n_sheets}'] = csv_content
+        n_sheets += 1
+        
+    return sheet_dict
+    
