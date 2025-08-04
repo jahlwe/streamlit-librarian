@@ -718,8 +718,7 @@ def render_utilities():
         st.session_state['mode'] = mode
         
     with rti_col2:
-        pcq_sheet = st.file_uploader(label='pcq sheet', type=['csv', 'xlsx'],
-                                 label_visibility='collapsed')
+        pcq_sheet = st.file_uploader(label='pcq sheet', type=['csv', 'xlsx'])
         if pcq_sheet is not None:
             try:
                 pcq_data = gu.sheet_to_dict(pcq_sheet)
@@ -728,8 +727,7 @@ def render_utilities():
                 pass
             
     with rti_col3:
-        exp_archive = st.file_uploader('experimental data (.mat, in .zip)', type=['zip'],
-                                       label_visibility='collapsed')
+        exp_archive = st.file_uploader('experimental data (.mat, in .zip)', type=['zip'])
         if exp_archive is not None:
             archive_type = filetype.guess(exp_archive.getvalue()).extension
             exp_files_dict = au.read_archive(exp_archive, archive_type)
