@@ -32,6 +32,7 @@ MAT_FIELDS = {
     'IONMODE:': 'ion_mode',
     'NAME:': 'internal_id',
     'Num Peaks:': 'num_peak'
+    # add collision energy support --- what's the name?
 }
 
 # use to convert less-complicated storage names of variables

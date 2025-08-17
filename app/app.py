@@ -693,11 +693,12 @@ def render_utilities():
     st.header('utilities')
     # initialize session variables
     rti_keys = ['rti_pcq_data', 'rti_exp_data']
-    for key in rti_keys:
+    fc_keys = ['fc_upload', 'zip_bytes']
+    for key in rti_keys + fc_keys:
         if key not in st.session_state:
             st.session_state[key] = None
     
-    # first, RTI
+    # ---- RTI ---
     st.markdown(
         """
         **RTI web app sheet generator**  
@@ -772,8 +773,39 @@ def render_utilities():
                 st.error(f"Error during assembly: {e}")
                 st.session_state['rti_output'] = None
                 
-    # ----
+    # ---- FILE CONV ----
+    st.markdown(
+        """
+        **.mgf to .mat file converter**  
+        Upload an .mgf file with exported feature data (e.g., from mzMine)
+        to generate single, Librarian-compatible .mat-format files
+        """
+    )
     
+    fc_col1, fc_col2, fc_col3 = st.columns([1,2,2], vertical_alignment='top')
+    
+    with fc_col2:
+        mgf_file = st.file_uploader(label='.mgf file', type=['mgf'])
+        if mgf_file is not None:
+            try:
+                st.session_state['fc_upload'] = True
+                mgf_content = mgf_file.getvalue().decode('utf-8')
+                feature_dict = au.parse_mgf_app(mgf_content)
+                print(feature_dict)
+                st.session_state['zip_bytes'] = au.dict2mat_zip(feature_dict)
+            except Exception as e:
+                st.error(f'Failed to parse upload: {e}')
+        else:
+            st.session_state['fc_upload'] = False
+        
+        if st.session_state['zip_bytes'] is not None and st.session_state['fc_upload']:
+            st.download_button(
+                label='Download .mat files (in .zip)',
+                data=st.session_state['zip_bytes'],
+                file_name='mat_files.zip',
+                mime='application/zip'
+            )
+            
     # end
 
 def render_readme():

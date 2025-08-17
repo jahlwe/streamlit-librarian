@@ -23,6 +23,7 @@ from utils.spectrum import Spectrum
 from utils.spectrum_type import SpectrumType
 from utils.splash import Splash
 from datetime import date
+from datetime import datetime
 import re
 import time
 import io
@@ -705,6 +706,8 @@ def plot_MS2(data, ms2_display, precursor_mz, title='placeholder'):
     return fig
 
 # ---- UTILITY STUFF ----
+
+# ---- RTI ---
 def generate_rtiSheets_app(compound_dict):
     # store sheets here
     sheet_dict = {}
@@ -746,4 +749,132 @@ def generate_rtiSheets_app(compound_dict):
         n_sheets += 1
         
     return sheet_dict
+
+# ---- FILE CONV ----
+MGF_MAT_FIELDS = { # field correspondence; 'MGF field': 'MAT field'
+    'RTINSECONDS': 'RETENTIONTIME', 'PEPMASS': 'PRECURSORMZ',
+    'ADDUCT': 'PRECURSORTYPE', 'IONMODE': 'IONMODE',
+    'COLLISION_ENERGY': 'COLLISIONENERGY', # can .mat natively provide CE? need to know
+    'FRAGMENTATION_METHOD': 'FRAGMENTATIONMODE', # same q as for CE
+    'INSTRUMENT_TYPE': 'INSTRUMENT', # same q as for CE
+    'Num peaks': 'Num Peaks'
+    # we deal with the name separately
+}
+
+def parse_mgf_app(mgf_input):
+    # basic stuff, we read the mgf and turn it into a dictionary
+    # then we flip the dictionary into a set of mat files
+    feature_dict = {}
+    current_compound = None
+    feature_data = {}
+    peak_data = []
+    reading_peaks = False
+    
+    # deal with app input type
+    if isinstance(mgf_input, str):
+        lines = mgf_input.splitlines()
+    elif hasattr(mgf_input, 'read'):
+        lines = mgf_input.read().decode('utf-8').splitlines()
+    else:
+        # file path stuff --- actually irrelevant for app but whatever
+        with open(mgf_input, 'r') as f:
+            lines = f.readlines()
+    
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        
+        if line == 'BEGIN IONS':
+            feature_data = {}
+            peak_data = []
+            reading_peaks = False
+            
+        elif line == 'END IONS':
+            if peak_data:
+                feature_data['Num peaks'] = len(peak_data)
+                feature_data['peak_data'] = peak_data
+            if current_compound is None:
+                current_compound = f'compound_{len(feature_dict)}'
+            feature_dict[current_compound] = feature_data
+            current_compound = None
+            
+        elif reading_peaks:
+            parts = line.split()
+            if len(parts) == 2:
+                peak_data.append(tuple(map(float, parts)))
+                
+        else:
+            if '=' in line:
+                field, value = line.split('=', 1)
+                field = field.strip()
+                value = value.strip()
+                if field == 'NAME':
+                    current_compound = value
+                if field in MGF_MAT_FIELDS:                            
+                    feature_data[field] = value
+                if field == 'Num peaks':
+                    reading_peaks = True
+                
+    return feature_dict
+            
+def dict2mat_zip(feature_dict):
+    # create .mat files
+    if not feature_dict:
+        return
+    
+    # bytes buffer for zip-file
+    zip_buffer = io.BytesIO()
+    
+    date_folder = datetime.now().strftime('%Y-%m-%d')
+        
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for compound, data in feature_dict.items():
+            # get mode here already to handle folder placement
+            ion_mode = data.get('IONMODE', '').upper()
+            if ion_mode == 'POSITIVE':
+                mode_folder = 'pos'
+            elif ion_mode == 'NEGATIVE':
+                mode_folder = 'neg'
+            else:
+                mode_folder = 'NA'
+            
+            # folder stuff
+            zip_path = f"{date_folder}/{mode_folder}/{compound}.mat"
+            
+            # .mat file content as a string
+            lines = []
+            lines.append(f'NAME: {compound}')
+            
+            for mgf_key in ('RTINSECONDS', 'PEPMASS', 'ADDUCT', 'IONMODE', 
+                            'COLLISION_ENERGY', 'FRAGMENTATION_METHOD', 'INSTRUMENT_TYPE'):
+                if mgf_key in data:
+                    mat_key = MGF_MAT_FIELDS.get(mgf_key, mgf_key)
+                    value = data[mgf_key]
+                    if mgf_key == 'IONMODE':
+                        value = value.capitalize()
+                    if mgf_key == 'COLLISION_ENERGY':
+                        val_str = value.strip('[]')
+                        try:
+                            val_float = float(val_str)
+                            val_int = int(round(val_float))
+                            value = f'{val_int}%'
+                        except ValueError:
+                            value = value
+                    lines.append(f'{mat_key}: {value}')
+                
+            num_peaks = data.get('Num peaks', len(data.get('peak_data', [])))
+            lines.append(f'Num Peaks: {num_peaks}')
+            
+            peak_data = data.get('peak_data', [])
+            for mz, intensity in peak_data:
+                lines.append(f'{mz}\t{intensity}')
+                    
+            # add it all up
+            mat_text = '\n'.join(lines) + '\n'
+            # and write it
+            zf.writestr(zip_path, mat_text)
+    
+    zip_buffer.seek(0)
+    return zip_buffer
     
