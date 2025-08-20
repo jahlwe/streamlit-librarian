@@ -593,7 +593,6 @@ def render_lib_compile():
     if precomp_sheet is not None:
         try:
             precomp_data = gu.sheet_to_dict(precomp_sheet, preferred_key)
-            print(precomp_data)
             # filter here, by default --- for now.
             precomp_data = au.filter_preComp_app(precomp_data, mode) 
             st.session_state['precomp_data'] = precomp_data

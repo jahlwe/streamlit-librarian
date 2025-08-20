@@ -376,7 +376,7 @@ def adduct_assigner(compound, data):
     nBr = 0
     if formula and 'Br' in formula:
         atom_count = fa.parse_formula(formula)
-        nBr = atom_count['Br'] if atom_count else 0
+        nBr = atom_count.get('Br', 0)
     
     # subset adducts for the current mode
     # don't know if we will ever have to worry about not having ion_mode data.
@@ -391,7 +391,9 @@ def adduct_assigner(compound, data):
     
     for adduct in adduct_subset.keys():
         charge = get_charge(adduct)
-        for i in range(nBr + 1) if nBr > 0 else 1:
+        print('outside loop')
+        for i in range(nBr + 1 if nBr > 0 else 1):
+            print('inside loop')
             theo_mz = (monomass + adduct_subset[adduct] + i * BR_ISOTOPE_DIFF) / abs(charge)
             ppm_dev = abs(((theo_mz - exp_mz)/ theo_mz) * 1e6)
             if ppm_dev < 10 and ppm_dev < best_ppm:
@@ -491,6 +493,8 @@ def preCompile_app(
             
     validate = True # for ion type stuff below...
     
+    print('hello')
+    
     if dictionary:
         total = len(dictionary)
         for i, (compound, data) in enumerate(dictionary.items()):
@@ -501,6 +505,7 @@ def preCompile_app(
                 validate = False
             else:
                 validate = True
+            print('past assigner')
             # generate record_title and save sheet
             short_name = re.sub(r' feature no\. \d+$', '', compound)
             record_title = '; '.join(
