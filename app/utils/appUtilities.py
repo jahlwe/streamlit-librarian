@@ -304,11 +304,19 @@ def parse_matFile_app(
                     if normalize_ms2 and peak_data:
                         current_record['ms2_norm'] = qu.normalize_peaks(peak_data)
                     current_record['base_peak'] = round(max(peak_data, key=lambda x: x[1])[0], 5)
+    
     # add records
     # EXTRA MODE VALIDATION!
-    # Use get_charge on the ion type data, compare it to 
-    mode_agreement = get_charge(current_record['ion_type']) == mode_sign  
-    if current_compound and current_record and mode_agreement:
+    # Use get_charge on the ion type data, compare it to mode_sign
+    # only if the mat file contains an ion type annotation though
+    if current_record.get('ion_type', None):
+        mode_agreement = get_charge(current_record['ion_type']) == mode_sign  
+        if current_compound and current_record and mode_agreement:
+            dictionary[current_compound] = current_record.copy()
+    # if we don't have an ion type annotation, we have to leave it empty for now
+    # autoassign it later...
+    else:
+        current_record['ion_type'] = None
         dictionary[current_compound] = current_record.copy()
         
     return dictionary
@@ -332,6 +340,65 @@ def add_manual_metadata_app(dictionary, metadata_file):
     for compound in dictionary: # add them to each entry
         dictionary[compound].update(manual_dictionary)
     return dictionary
+
+BR_ISOTOPE_DIFF = 1.99795 # need this for bromine stuff
+CL_ISOTOPE_DIFF = 1.99705 # not implemented yet
+# maybe do for Cl later --- polychlorinated might need it?
+
+def adduct_assigner(compound, data):
+    # if mat files lack adduct annotation...
+    e_mass = 0.00054858
+    h_mass = 1.00783
+    adducts = {
+        # pos
+        # add 2x charge and neutral losses later
+        '[M]+': - e_mass,
+        '[M]2+': - (2 * e_mass),
+        '[M+H]+': h_mass - e_mass,
+        '[M+NH4]+': 14.00307 + (4 * h_mass) - e_mass,
+        '[M+Na]+': 22.98977 - e_mass,
+        '[M+K]+': 38.96371 - e_mass,
+        '[M+2H]2+': (2 * h_mass) - (2 * e_mass),
+        '[M+H-H2O]+': 17.00274 - e_mass,
+        # neg
+        '[M-H]-': - h_mass + e_mass,
+        '[M+Cl]-': 34.96885 + e_mass,
+        '[M+F]-': 18.99840 + e_mass,
+        '[M-2H]2-': (-2 * h_mass) + (2 * e_mass),
+        '[M-H2O-H]-': -19.01839 + e_mass
+    }
+    adduct = None
+    monomass = data.get('monoisotopicMass', None)
+    exp_mz = data.get('precursor_mz', None)
+    
+    # dealing with Br (Cl later, too...?)
+    formula = data.get('molecularFormula', None)
+    nBr = 0
+    if formula and 'Br' in formula:
+        atom_count = fa.parse_formula(formula)
+        nBr = atom_count['Br'] if atom_count else 0
+    
+    # subset adducts for the current mode
+    # don't know if we will ever have to worry about not having ion_mode data.
+    charge_indicator = '+' if data.get('ion_mode', None).lower() == 'positive' else '-' if data.get('ion_mode', None).lower() == 'negative' else None
+    adduct_subset = {k: v for k, v in adducts.items() if k.endswith(charge_indicator)}
+    
+    best_ppm = float('inf')
+    best_adduct = None
+    
+    if monomass is None or exp_mz is None:
+        return None
+    
+    for adduct in adduct_subset.keys():
+        charge = get_charge(adduct)
+        for i in range(nBr + 1) if nBr > 0 else 1:
+            theo_mz = (monomass + adduct_subset[adduct] + i * BR_ISOTOPE_DIFF) / abs(charge)
+            ppm_dev = abs(((theo_mz - exp_mz)/ theo_mz) * 1e6)
+            if ppm_dev < 10 and ppm_dev < best_ppm:
+                best_ppm = ppm_dev
+                best_adduct = adduct
+        
+    return best_adduct if best_adduct else None
 
 def adduct_checker(compound, data):
     # for Br-containing (Cl also sometimes? No?) compounds -- 
@@ -361,41 +428,42 @@ def adduct_checker(compound, data):
     monomass = data.get('monoisotopicMass', None)
     exp_mz = data.get('precursor_mz', None)
     
+    # dealing with Br and Cl
+    formula = data.get('molecularFormula', None)
+    nBr = 0
+    nCl = 0
+    if formula and ('Br' in formula or 'Cl' in formula):
+        atom_count = fa.parse_formula(formula)
+        nBr = atom_count.get('Br', 0)
+        nCl = atom_count.get('Cl', 0)
+    
     # subset adducts for the current mode
     charge_indicator = adduct[-1]
     adduct_subset = {k: v for k, v in adducts.items() if k.endswith(charge_indicator)}
     
-    if adduct in adduct_subset.keys() and adduct and monomass and exp_mz:
+    def matches(adduct):
         charge = get_charge(adduct)
-        theo_mz = (monomass + adduct_subset[adduct]) / abs(charge)
-        # calculate how near the MSDIAL mass is to the expected mass for that adduct
-        ok_diff = True if abs(theo_mz - exp_mz) < 0.1 else False
-        if not ok_diff:
-            for other_adduct in adduct_subset.keys():
-                if other_adduct != adduct:
-                    charge = get_charge(other_adduct)
-                    candidate_theo_mz = (monomass + adduct_subset[other_adduct]) / abs(charge)
-                    ok_diff = True if abs(candidate_theo_mz - exp_mz) < 0.1 else False
-                    if ok_diff:
-                        print(f'more suitable ion type {other_adduct} for {compound} --- discarding {adduct}')
-                        return other_adduct, True
-            print(f'unsuitable adduct for {compound} but no alternative found --- validate manually')
-            return adduct, False
-        else:
-            return adduct, True
-    elif adduct not in adduct_subset.keys() and adduct and monomass and exp_mz:
-        for other_adduct in adduct_subset.keys():
-            charge = get_charge(other_adduct)
-            candidate_theo_mz = (monomass + adduct_subset[other_adduct]) / abs(charge)
-            ok_diff = True if abs(candidate_theo_mz - exp_mz) < 0.1 else False
-            if ok_diff:
-                print(f'more suitable ion type {other_adduct} found for {compound} --- discarding {adduct}')
-                return other_adduct, True
-        print(f'unsuitable adduct for {compound} but no alternative found --- validate manually')
-        return adduct, False
-    else:
-        print(f'data missing to validate adduct for {compound} --- validate manually')
-        return adduct, False
+        for i in range(nBr + 1 if nBr > 0 else 1):
+            for j in range(nCl + 1 if nCl > 0 else 1):
+                iso_shift = i * BR_ISOTOPE_DIFF + j * CL_ISOTOPE_DIFF
+                theo_mz = (monomass + adduct_subset[adduct] + iso_shift) / abs(charge)
+                ppm_dev = abs((theo_mz - exp_mz) / theo_mz * 1e6)
+                if ppm_dev < 10:
+                    return True
+        return False
+    
+    # look through the subset for matches
+    if adduct in adduct_subset and matches(adduct):
+        return adduct, True
+    
+    for other_adduct in adduct_subset:
+        if other_adduct == adduct:
+            continue
+        if matches(other_adduct):
+            print(f'more suitable ion type {other_adduct} for {compound} --- discarding {adduct}')
+            return other_adduct, True
+    print(f'unsuitable adduct for {compound} but no alternative found --- validate manually')
+    return adduct, False
 
 # combined assembling preComp dict with the preparation steps.
 def preCompile_app(
@@ -421,17 +489,27 @@ def preCompile_app(
         if cf_data:
             dictionary = add_cfData_app(dictionary, cf_data)
             
+    validate = True # for ion type stuff below...
+    
     if dictionary:
         total = len(dictionary)
-        for i, (compound, data) in enumerate(dictionary.items()):        
+        for i, (compound, data) in enumerate(dictionary.items()):
+            # first! calculate ion types for those that lack it
+            if not data.get('ion_type'):
+                data['ion_type'] = adduct_assigner(compound, data)
+                data['adduct_validated'] = 'assigned'
+                validate = False
+            else:
+                validate = True
             # generate record_title and save sheet
             short_name = re.sub(r' feature no\. \d+$', '', compound)
             record_title = '; '.join(
                 [short_name, data['instrument_type'], data['ms_type'], 
                  data['collision_energy'], data['resolution'], data['ion_type']])
             data['title'] = record_title
-            # also! run the adduct checker.
-            data['ion_type'], data['adduct_validated'] = adduct_checker(compound, data)
+            # also! run the adduct checker. IF there is prior ion type data.
+            if validate:
+                data['ion_type'], data['adduct_validated'] = adduct_checker(compound, data)
             # also! annotate fragments.
             if annotate_fragments:
                 try:
@@ -446,6 +524,7 @@ def preCompile_app(
                 finally: # this is a thing?
                     if progress_callback:
                         progress_callback(i+1, total, compound)
+                        
     return dictionary
 
 # --- COMPILATION ---
@@ -863,6 +942,7 @@ def dict2mat_zip(feature_dict):
                             value = value
                     lines.append(f'{mat_key}: {value}')
                 
+            lines.append('MSTYPE: MS2') # need this 
             num_peaks = data.get('Num peaks', len(data.get('peak_data', [])))
             lines.append(f'Num Peaks: {num_peaks}')
             
