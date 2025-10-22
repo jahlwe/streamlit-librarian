@@ -85,9 +85,9 @@ def render_pcq():
             - If a suitable entry is known a priori, __CID__ queries are also supported
         - Query inputs are supplied directly in-browser or by uploading a sheet (.csv, .xlsx)
         - No need for salt (i.e., **X HCl**) pre-cleaning – salts are recognized and parent compound (i.e., **X**) data retrieved instead
-        - Use the `internal_id` field if a specific "internal" name should be used for a compound during library assembly
-            - If left blank, `internal_id` defaults to PubChem entry title names
-            - ___N.B.!___ To ensure proper downstream management of chemical metadata, `internal_id` values should be unique
+        - Use the `library_id` field if a specific "internal" name should be used for a compound during library assembly
+            - If left blank, `library_id` defaults to PubChem entry title names
+            - ___N.B.!___ To ensure proper downstream management of chemical metadata, `library_id` values should be unique
         """
     )
     
@@ -185,7 +185,7 @@ def render_pcq():
                         st.error(f'Error: {str(e)}')
                         st.session_state['pcq_success'] = False
     
-        # Display download button if processing was successful
+        # display download button if processing was successful
         if st.session_state.get('pcq_success'):
             st.success('pcq complete!')
             if st.session_state['pcq_output']:
@@ -196,7 +196,7 @@ def render_pcq():
     elif pcq_submodule == 'in-browser':
         if 'in_browser_df' not in st.session_state or not isinstance(st.session_state['in_browser_df'], pd.DataFrame):
             st.session_state['in_browser_df'] = pd.DataFrame(
-                [{'internal_id': None, 'name_q': None, 'cas_q': None, 'smiles_q': None, 'cid_q': None, 'pcq_success': False}]
+                [{'library_id': None, 'name_q': None, 'cas_q': None, 'smiles_q': None, 'cid_q': None, 'pcq_success': False}]
             )
         if 'pcq_dict' not in st.session_state or not isinstance(st.session_state['pcq_dict'], dict):
             st.session_state['pcq_dict'] = {}
@@ -250,8 +250,8 @@ def render_pcq():
                             for idx, row in enumerate(all_rows):
                                 entry = st.session_state['pcq_dict'].get(idx)
                                 if entry:
-                                    if 'internal_id' in entry:
-                                        row['internal_id'] = entry.get('internal_id', row.get('internal_id'))
+                                    if 'library_id' in entry:
+                                        row['library_id'] = entry.get('library_id', row.get('library_id'))
                                     cid = entry.get('pubchemCID')
                                     row['pcq_success'] = isinstance(cid, int)
                                 else:
@@ -288,7 +288,7 @@ def render_mix():
     
     sheet = st.file_uploader(label='pcq sheet', type=['csv', 'xlsx'],
                              label_visibility='collapsed')
-    preferred_key = 'internal_id'
+    preferred_key = 'library_id'
     dictionary = None
     
     # need to initialize "session state variables" to keep things
@@ -425,7 +425,7 @@ def render_lib_precomp():
     
     with req_col1:
         pcq_sheet = st.file_uploader('pcq sheet (.csv)', type=['csv', 'xlsx'])
-        preferred_key = 'internal_id'
+        preferred_key = 'library_id'
         if pcq_sheet is not None:
             try:
                 pcq_data = gu.sheet_to_dict(pcq_sheet, preferred_key)
@@ -589,7 +589,7 @@ def render_lib_compile():
     
     # --- INPUT ---
     precomp_sheet = st.file_uploader('pre-assembly sheet', type=['csv', 'xlsx'])
-    preferred_key = 'internal_id'
+    preferred_key = 'library_id'
     if precomp_sheet is not None:
         try:
             precomp_data = gu.sheet_to_dict(precomp_sheet, preferred_key)

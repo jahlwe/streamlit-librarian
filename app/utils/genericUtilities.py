@@ -86,7 +86,7 @@ def convert_value(value):
 INTEGER_COLUMNS = ['pubchemCID','pos_count','neg_count','mb_recCount',
                    'gnps_recCount','cid_q']
 
-def sheet_to_dict(sheet, preferred_key='internal_id'):
+def sheet_to_dict(sheet, preferred_key='library_id'):
     '''
     Create a dictionary from a sheet-style 
     (.csv, .xlsx) input file.
@@ -112,10 +112,10 @@ def sheet_to_dict(sheet, preferred_key='internal_id'):
         print('input file not found.')
         return None
     
-    possible_keys = ['internal_id', 'internalName', 'vendorName', 'Name']
+    possible_keys = ['library_id', 'internalName', 'vendorName', 'Name']
     key_column = preferred_key if preferred_key in in_sheet.columns else next((col for col in possible_keys if col in in_sheet.columns), None)
     if key_column is None:
-        print('no valid name column found (internal_id/internalName/vendorName/Name)')
+        print('no valid name column found (library_id/internalName/vendorName/Name)')
         return None
     
     dictionary = {} # convert to dictionary
@@ -196,7 +196,7 @@ def dict_to_sheet(dictionary, file_name=None, fmat='.csv', buffer=None):
 # used for pcq.
 
 PCQ_INIT_COLUMNS = [
-    'internal_id', 'name_q', 'cas_q', 'smiles_q', 'cid_q' 
+    'library_id', 'name_q', 'cas_q', 'smiles_q', 'cid_q' 
 ]
 
 def sheet_to_idx_dict(sheet):
@@ -255,9 +255,9 @@ def idx_dict_to_sheet(
     
     # only thing we need is to move name up front
     cols = list(out_sheet.columns)
-    if 'internal_id' in cols:
-        cols.remove('internal_id')
-        cols = ['internal_id'] + cols
+    if 'library_id' in cols:
+        cols.remove('library_id')
+        cols = ['library_id'] + cols
         out_sheet = out_sheet[cols]
     
     # dealing with files through streamlit 

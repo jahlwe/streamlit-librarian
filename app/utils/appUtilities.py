@@ -36,11 +36,11 @@ import math
 def generate_pcq_template():
     output = io.StringIO()
     writer = csv.writer(output, delimiter=',', lineterminator='\n')
-    writer.writerow(['internal_id', 'name_q', 'cas_q', 'smiles_q', 'cid_q'])
+    writer.writerow(['library_id', 'name_q', 'cas_q', 'smiles_q', 'cid_q'])
     return output.getvalue()
 
 # --- PCQ RE-QUERY (sheet-based) HELPER ---
-QUERY_FIELDS = ['internal_id', 'name_q', 'cas_q', 'smiles_q', 'cid_q']
+QUERY_FIELDS = ['library_id', 'name_q', 'cas_q', 'smiles_q', 'cid_q']
 
 def query_dict_from_pcq_input(pcq_input):
     query_dict = {}
@@ -58,9 +58,9 @@ def query_dict_from_pcq_input(pcq_input):
         # allow manual CID to override
         if data.get('pubchemCID'):
             entry['cid_q'] = data['pubchemCID']
-        # also keep any assigned internal_id
-        if data.get('internal_id'):
-            entry['internal_id'] = data['internal_id']
+        # also keep any assigned library_id
+        if data.get('library_id'):
+            entry['library_id'] = data['library_id']
         query_dict[idx] = entry
     return query_dict
 
@@ -79,7 +79,7 @@ FIELD_CONVERSION = {
     'copyright': 'COPYRIGHT:',
     'comment_1': 'COMMENT:', # add more as needed
     'comment_2': 'COMMENT:',
-    'internal_id': 'CH$NAME:',
+    'library_id': 'CH$NAME:',
     'iupacName': 'CH$NAME:',
     'class': 'CH$COMPOUND_CLASS:',
     'molecularFormula': 'CH$FORMULA:',
@@ -121,7 +121,7 @@ FIELD_CONVERSION = {
 # annoying, but must do this...
 mastersheet_field_conversion = FIELD_CONVERSION.copy()
 mastersheet_field_conversion['comment_2'] = 'COMMENT: (2)'
-mastersheet_field_conversion['internal_id'] = 'CH$NAME:'
+mastersheet_field_conversion['library_id'] = 'CH$NAME:'
 mastersheet_field_conversion['iupacName'] = 'CH$NAME: (IUPAC)'
 MASTERSHEET_COLUMNS = {
     'file_name': 'File_name',
@@ -173,7 +173,7 @@ MAT_FIELDS = {
     'PRECURSORMZ:': 'precursor_mz',
     'PRECURSORTYPE:': 'ion_type',
     'IONMODE:': 'ion_mode',
-    'NAME:': 'internal_id',
+    'NAME:': 'library_id',
     'Num Peaks:': 'num_peak'
 }
 
@@ -276,7 +276,7 @@ def parse_matFile_app(
                     feature_index += 1
                     current_compound = f'{base_name} feature no. {feature_index}'
                 
-                current_record = {'keyColumn': 'internal_id'}
+                current_record = {'keyColumn': 'library_id'}
                 continue
             
             for field, storage in MAT_FIELDS.items():
@@ -669,7 +669,7 @@ def write_txtFile_app(compound, data, field_order=None):
     Adapted helper from compilerUtilities...
     Returns full .txt file layout as a string.
     """
-    data['internal_id'] = compound # do we still need this? keep 4 now...
+    data['library_id'] = compound # do we still need this? keep 4 now...
     output = io.StringIO()
     fields = field_order if field_order else FIELD_CONVERSION.keys()
     for field in fields:
@@ -677,7 +677,7 @@ def write_txtFile_app(compound, data, field_order=None):
         if not mb_field:
             continue
         value = data.get(field)
-        if field == 'internal_id' and value:
+        if field == 'library_id' and value:
             value = re.sub(r' feature no\. \d+$', '', value)
         if value is None or str(value) == 'nan':
             # on per-compound basis --- 

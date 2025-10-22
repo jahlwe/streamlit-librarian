@@ -174,7 +174,7 @@ def safe_getattr(obj, attr, default=None, cast=None):
 # we need to initialize these to make sure our re-query stuff works as it should
 # just for... proper bookkeeping.
 ALL_PCQ_FIELDS = [
-    'internal_id', 'queried_as', 'queried_at', 'synonyms', 'iupacName',
+    'library_id', 'queried_as', 'queried_at', 'synonyms', 'iupacName',
     'molecularFormula', 'monoisotopicMass', 'smiles', 'inchi', 'inchikey',
     'pubchemCID', 'name', 'cas', 'comptoxURL'
 ]
@@ -289,9 +289,9 @@ def pcQueries(query_dict, query_empty_only=True, progress_callback=None):
                 except Exception:
                     pass
                 
-            # decide internal_id
-            internal_id = data.get('internal_id')
-            pcq_out[idx]['internal_id'] = internal_id if internal_id else pcq_out[idx]['name']
+            # decide library_id
+            library_id = data.get('library_id')
+            pcq_out[idx]['library_id'] = library_id if library_id else pcq_out[idx]['name']
                 
         except Exception as e:
             # need to change this, later.
