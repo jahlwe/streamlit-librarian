@@ -20,6 +20,7 @@ import zipfile
 import rarfile
 import filetype
 import csv
+import copy
 import plotly.graph_objects as go
 from rdkit import Chem
 from rdkit.Chem import Draw
@@ -396,294 +397,527 @@ def render_mix():
 def render_lib_precomp():
     st.header('lib module; pre-assembly')
     st.caption('Two-step assembly of MassBank-format spectral library')
-    st.markdown(
-        """
-        - **Pre-assembly**
-            - Collates metadata (pcq module-format), experimental settings (manually supplied) and experimental data (.mat)
-            - Outputs an editable sheet for use in the assembly sub-module
-        """
-    )
+    
     # init keys for what we need
     input_keys = ['mode', 'pcq_data', 'metadata_tsv', 'mat_data']
     optional_input_keys = ['rti_data', 'cf_data']
     for key in input_keys + optional_input_keys + ['output', 'precomp_ready', 'prev_inputs']:
         if key not in st.session_state:
-            st.session_state[key] = None
-    
-    # --- SELECT MODE ---
-    mode = st.radio(
-        'ionization mode',
-        options=['pos', 'neg'],
-        index=0,  # default selection
-        horizontal=True  # this looks nicer here
-    )
-    st.session_state['mode'] = mode
-    
-    # --- UPLOADS ---
-    # columns for horizontal layout
-    req_col1, req_col2, req_col3 = st.columns(3, vertical_alignment='top')
-    
-    with req_col1:
-        pcq_sheet = st.file_uploader('pcq sheet (.csv)', type=['csv', 'xlsx'])
-        preferred_key = 'library_id'
-        if pcq_sheet is not None:
-            try:
-                pcq_data = gu.sheet_to_dict(pcq_sheet, preferred_key)
-                st.session_state['pcq_data'] = pcq_data
-            except Exception as e:
-                st.error(f'Error reading file: {str(e)}')
-                st.session_state['pcq_data'] = None
-        else:
-            st.session_state['pcq_data'] = None
-            
-    with req_col2:
-        metadata_tsv = st.file_uploader('experimental metadata (.tsv)', type=['tsv'])
-        if metadata_tsv is not None:
-            st.session_state['metadata_tsv'] = metadata_tsv
-        else:
-            st.session_state['metadata_tsv'] = None
-        
-        # also - a template that can be downloaded!
-        tsv_content = au.generate_metadata_template()
-        st.download_button(
-            label='Download template',
-            data=tsv_content,
-            file_name='metadata_template.tsv',
-            mime='text/tab-separated-values'
+                st.session_state[key] = None
+             
+    # also init parameter stuff
+    if 'mat_fields' not in st.session_state or not isinstance(st.session_state['mat_fields'], pd.DataFrame):
+        st.session_state['mat_fields'] = pd.DataFrame(
+            [{'extract_tag': None, 'storage_tag': None}]
         )
+    if 'mat_fields_edit_buffer' not in st.session_state:
+        st.session_state['mat_fields_edit_buffer'] = st.session_state['mat_fields'].copy()
+                
+    # try settings-window to allow field customization
+    if st.button("⚙️ Parameters"):
+        st.session_state['show_precomp_param'] = not st.session_state.get('show_precomp_param', False)
     
-    # .mat files in .zip format (.rar did not cooperate.)
-    with req_col3:
-        mat_archive = st.file_uploader('.mat files (in .zip)', type=['zip'])
-        if mat_archive is not None:
-            archive_type = filetype.guess(mat_archive.getvalue()).extension
-            mat_files_dict = au.read_archive(mat_archive, archive_type)
-            mat_files_dict = {k: v for k, v in mat_files_dict.items() if (k.endswith('.mat') and f'{mode}/' in k)}
-            st.info(f'{len(mat_files_dict)} .mat ({mode}) files recognized')
-            if len(mat_files_dict) > 0:
-            # process with app-specific gather_matData
-                mat_data = au.gather_matData_app(mat_files_dict, mode)
-                st.session_state['mat_data'] = mat_data
-                print(mat_data)
+    if not st.session_state.get('show_precomp_param', False):
+        st.markdown(
+            """
+            - **Pre-assembly**
+                - Collates metadata (pcq module-format), experimental settings (manually supplied) and experimental data (.mat)
+                - Outputs an editable sheet for use in the assembly sub-module
+            """
+        )
+        
+        # do these stick when we come back here...
+        print(st.session_state['mat_fields'])
+        
+        # --- SELECT MODE ---
+        mode = st.radio(
+            'ionization mode',
+            options=['pos', 'neg'],
+            index=0,  # default selection
+            horizontal=True  # this looks nicer here
+        )
+        st.session_state['mode'] = mode
+        
+        # --- UPLOADS ---
+        # columns for horizontal layout
+        req_col1, req_col2, req_col3 = st.columns(3, vertical_alignment='top')
+        
+        with req_col1:
+            pcq_sheet = st.file_uploader('pcq sheet (.csv)', type=['csv', 'xlsx'])
+            preferred_key = 'library_id'
+            if pcq_sheet is not None:
+                try:
+                    pcq_data = gu.sheet_to_dict(pcq_sheet, preferred_key)
+                    st.session_state['pcq_data'] = pcq_data
+                except Exception as e:
+                    st.error(f'Error reading file: {str(e)}')
+                    st.session_state['pcq_data'] = None
+            else:
+                st.session_state['pcq_data'] = None
+                
+        with req_col2:
+            metadata_tsv = st.file_uploader('experimental metadata (.tsv)', type=['tsv'])
+            if metadata_tsv is not None:
+                st.session_state['metadata_tsv'] = metadata_tsv
+            else:
+                st.session_state['metadata_tsv'] = None
+            
+            # also - a template that can be downloaded!
+            tsv_content = au.generate_metadata_template()
+            st.download_button(
+                label='Download template',
+                data=tsv_content,
+                file_name='metadata_template.tsv',
+                mime='text/tab-separated-values'
+            )
+        
+        # .mat files in .zip format (.rar did not cooperate.)
+        with req_col3:
+            mat_archive = st.file_uploader('.mat files (in .zip)', type=['zip'])
+            if mat_archive is not None:
+                archive_type = filetype.guess(mat_archive.getvalue()).extension
+                mat_files_dict = au.read_archive(mat_archive, archive_type)
+                mat_files_dict = {k: v for k, v in mat_files_dict.items() if (k.endswith('.mat') and f'{mode}/' in k)}
+                st.info(f'{len(mat_files_dict)} .mat ({mode}) files recognized')
+                if len(mat_files_dict) > 0:
+                # process with app-specific gather_matData
+                    # get the custom fields if there are any
+                    mat_fields = st.session_state['mat_fields'].dropna(subset=['extract_tag', 'storage_tag'])
+                    mat_fields = mat_fields[
+                        (mat_fields['extract_tag'].str.strip() != '') & 
+                        (mat_fields['storage_tag'].str.strip() != '')]
+                    if not mat_fields.empty: 
+                        custom_mat_fields = dict(zip(mat_fields['extract_tag'], mat_fields['storage_tag']))
+                        print(custom_mat_fields)
+                    else:
+                        custom_mat_fields = {}
+                    mat_data = au.gather_matData_app(mat_files_dict, mode, custom_mat_fields)
+                    st.session_state['mat_data'] = mat_data
+                    print(mat_data)
+                else:
+                    st.session_state['mat_data'] = None
             else:
                 st.session_state['mat_data'] = None
-        else:
-            st.session_state['mat_data'] = None
+            
+        # RTI & ClassyFire
+        opt_col1, opt_col2, opt_col3 = st.columns(3)
         
-    # RTI & ClassyFire
-    opt_col1, opt_col2, opt_col3 = st.columns(3)
-    
-    with opt_col1:
-        rti_box = st.checkbox('RTI')
-        if rti_box:
-            rti_archive = st.file_uploader('RTI sheets (.csv, in .zip)', type=['zip'])
-            if rti_archive is not None:
-                archive_type = filetype.guess(rti_archive.getvalue()).extension
-                rti_files_dict = au.read_archive_RTI(rti_archive, archive_type)
-                rti_files_dict = {k: v for k, v in rti_files_dict.items() if (k.endswith('.csv') and f'{mode}/' in k)}
-                st.info(f'{len(rti_files_dict)} RTI sheets ({mode}) recognized')
-                if len(rti_files_dict) > 0:
-                    # process.
-                    rti_data = au.gather_RTIData_app(rti_files_dict)
-                    st.session_state['rti_data'] = rti_data
+        with opt_col1:
+            rti_box = st.checkbox('RTI')
+            if rti_box:
+                rti_archive = st.file_uploader('RTI sheets (.csv, in .zip)', type=['zip'])
+                if rti_archive is not None:
+                    archive_type = filetype.guess(rti_archive.getvalue()).extension
+                    rti_files_dict = au.read_archive_RTI(rti_archive, archive_type)
+                    rti_files_dict = {v for k, v in rti_files_dict.items() if (k.endswith('.csv') and f'{mode}/' in k)}
+                    st.info(f'{len(rti_files_dict)} RTI sheets ({mode}) recognized')
+                    if len(rti_files_dict) > 0:
+                        # process.
+                        rti_data = au.gather_RTIData_app(rti_files_dict)
+                        st.session_state['rti_data'] = rti_data
+                else:
+                    st.session_state['rti_data'] = None
             else:
                 st.session_state['rti_data'] = None
-        else:
-            st.session_state['rti_data'] = None
-            
-    with opt_col2:
-        cf_box = st.checkbox('ClassyFire')
-        if cf_box:
-            cf_sheet = st.file_uploader('ClassyFire sheet (.csv)', type=['csv'])
-            if cf_sheet is not None:
-                cf_data = gu.sheet_to_dict(cf_sheet, 'InChIKey')
-                st.session_state['cf_data'] = cf_data
+                
+        with opt_col2:
+            cf_box = st.checkbox('ClassyFire')
+            if cf_box:
+                cf_sheet = st.file_uploader('ClassyFire sheet (.csv)', type=['csv'])
+                if cf_sheet is not None:
+                    cf_data = gu.sheet_to_dict(cf_sheet, 'InChIKey')
+                    st.session_state['cf_data'] = cf_data
+                else:
+                    st.session_state['cf_data'] = None
             else:
                 st.session_state['cf_data'] = None
-        else:
-            st.session_state['cf_data'] = None
+                
+        # --- RESET OUTPUT/STATE IF INPUTS CHANGED ---
+        current_inputs = { # track these...
+            'mode': st.session_state['mode'],
+            'pcq_data': pcq_sheet,
+            'metadata_tsv': metadata_tsv,
+            'mat_data': mat_archive
+        }
+        # if any uploaded file is removed --- we reset the whole thing.
+        if st.session_state['prev_inputs'] is not None:
+            for k in current_inputs:
+                if current_inputs[k] != st.session_state['prev_inputs'].get(k):
+                    st.session_state['output'] = None
+                    st.session_state['precomp_ready'] = False
+                    break
+        st.session_state['prev_inputs'] = current_inputs
+        
+        # --- PRE-ASSEMBLY BLOCK ---
+        # ready check. need to adapt if we add optional data like RTI, CF.
+        all_ready = all(st.session_state[k] is not None for k in input_keys)
+        if all_ready:
+            st.success('All required data loaded. Ready to proceed!')
             
-    # --- RESET OUTPUT/STATE IF INPUTS CHANGED ---
-    current_inputs = { # track these...
-        'mode': st.session_state['mode'],
-        'pcq_data': pcq_sheet,
-        'metadata_tsv': metadata_tsv,
-        'mat_data': mat_archive
-    }
-    # if any uploaded file is removed --- we reset the whole thing.
-    if st.session_state['prev_inputs'] is not None:
-        for k in current_inputs:
-            if current_inputs[k] != st.session_state['prev_inputs'].get(k):
-                st.session_state['output'] = None
-                st.session_state['precomp_ready'] = False
-                break
-    st.session_state['prev_inputs'] = current_inputs
+            # add the custom fields to this thing that we use to initialize PA-dict
+            # if there are any
+            complete_storage_fields = cu.STORAGE_FIELDS.copy()
+            if custom_mat_fields:
+                for field in custom_mat_fields.values():
+                    if field not in complete_storage_fields:
+                        complete_storage_fields.append(field)
+            
+            if st.button('Perform pre-assembly'):
+                # get a progress bar here, because annnotation can take a long time
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                def progress_callback(current, total, compound):
+                    progress_bar.progress(current / total)
+                    status_text.text(f'Annotating MS2 {current}/{total} : {compound}')
+                try:
+                    precomp_dict = au.preCompile_app(
+                        mode=st.session_state['mode'],
+                        pcq_data=st.session_state['pcq_data'],
+                        metadata_tsv=st.session_state['metadata_tsv'],
+                        mat_data=st.session_state['mat_data'],
+                        storage_fields=complete_storage_fields,
+                        # optional RTI and CF
+                        rti_data=st.session_state.get('rti_data'),
+                        cf_data=st.session_state.get('cf_data'),
+                        annotate_fragments=True,
+                        progress_callback=progress_callback
+                    )
+                    output_buffer = io.StringIO()
+                    gu.dict_to_sheet(precomp_dict, file_name=None, fmat='.csv', buffer=output_buffer)
+                    output_buffer.seek(0)
+                    st.session_state['output'] = output_buffer
+                    st.session_state['precomp_ready'] = True
+                except Exception as e:
+                    st.session_state['output'] = None
+                    st.session_state['precomp_ready'] = False
+                    st.error(f"Error during pre-assembly: {e}")
     
-    # --- PRE-ASSEMBLY BLOCK ---
-    # ready check. need to adapt if we add optional data like RTI, CF.
-    all_ready = all(st.session_state[k] is not None for k in input_keys)
-    if all_ready:
-        st.success('All required data loaded. Ready to proceed!')
-        if st.button('Perform pre-assembly'):
-            # get a progress bar here, because annnotation can take a long time
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            def progress_callback(current, total, compound):
-                progress_bar.progress(current / total)
-                status_text.text(f'Annotating MS2 {current}/{total} : {compound}')
-            try:
-                precomp_dict = au.preCompile_app(
-                    mode=st.session_state['mode'],
-                    pcq_data=st.session_state['pcq_data'],
-                    metadata_tsv=st.session_state['metadata_tsv'],
-                    mat_data=st.session_state['mat_data'],
-                    # optional RTI and CF
-                    rti_data=st.session_state.get('rti_data'),
-                    cf_data=st.session_state.get('cf_data'),
-                    annotate_fragments=True,
-                    progress_callback=progress_callback
-                )
-                output_buffer = io.StringIO()
-                gu.dict_to_sheet(precomp_dict, file_name=None, fmat='.csv', buffer=output_buffer)
-                output_buffer.seek(0)
-                st.session_state['output'] = output_buffer
-                st.session_state['precomp_ready'] = True
-            except Exception as e:
-                st.session_state['output'] = None
-                st.session_state['precomp_ready'] = False
-                st.error(f"Error during pre-assembly: {e}")
-
-    # show download and success if ready, regardless of rerun
-    if st.session_state.get('precomp_ready', False) and st.session_state['output']:
-        st.success('Pre-assembly complete!')
-        st.download_button(
-            'Download pre-assembly sheet', 
-            st.session_state['output'].getvalue(),
-            file_name=f'preAssembly_{st.session_state["mode"]}.csv',
-            mime='text/csv'
+        # show download and success if ready, regardless of rerun
+        if st.session_state.get('precomp_ready', False) and st.session_state['output']:
+            st.success('Pre-assembly complete!')
+            st.download_button(
+                'Download pre-assembly sheet', 
+                st.session_state['output'].getvalue(),
+                file_name=f'preAssembly_{st.session_state["mode"]}.csv',
+                mime='text/csv'
+            )
+    
+    else: # params block
+        st.markdown(
+            """
+            Data extraction and storage from .mat files can be customized below.
+            
+            To extract data from additional user-defined .mat-file fields, please entry the respective field
+            tag and a storage name in the editable frame below. <br>A list of baseline extracted data is given
+            in the table on the left.
+            
+            To add more static data via the metadata .tsv, simply add new lines
+            in the metadata template that you supply to the pre-assembly module, with tags and values separated by a tab.
+            
+            For custom extracted data to end up in the final .txt output, you will later also need to
+            modify the assembly module settings.
+            """,
+            unsafe_allow_html=True
         )
+            
+        # check what's being stored
+        #print(st.session_state['mat_fields'])
+        #print(st.session_state['meta_fields'])
+        
+        # actually we don't need to do this for the metadata tsv
+        # you can just add lines in the tsv! duh!
+        
+        mat_static, mat_custom = st.columns(2)
+        
+        static_df = pd.DataFrame(list(au.MAT_FIELDS.items()), columns=['extract_tag', 'storage_tag'])
+        
+        #with mat_static:
+        #    st.markdown('**Basic fields (.mat data)**')
+        #    st.dataframe(static_df, use_container_width=True)
+        
+        
+        #with mat_custom:
+        #    st.markdown('**Custom fields (.mat data)**')
+        #    mat_df = st.data_editor(
+        #        st.session_state['mat_fields'],
+        #        num_rows='dynamic',
+        #        key='mat_f',
+        #    )
+            
+        #st.session_state['mat_fields'] = mat_df
+        
+        # lets try this crazy but a little less user-unfriendly way
+        def save_mat_fields():
+            changes = st.session_state['mat_fields_edit_delta']
+            df = st.session_state['mat_fields']
+        
+            for idx, edits in changes.get('edited_rows', {}).items():
+                for col, val in edits.items():
+                    df.at[idx, col] = val
+        
+            new_rows = changes.get('added_rows', [])
+            if new_rows:
+                new_df = pd.DataFrame(new_rows)
+                df = pd.concat([df, new_df], ignore_index=True)
+        
+            deleted = changes.get('deleted_rows', [])
+            if deleted:
+                df = df.drop(deleted)
+        
+            st.session_state['mat_fields'] = df.reset_index(drop=True)
+            st.session_state['mat_fields_edit_buffer'] = st.session_state['mat_fields'].copy()
+                 
+        with mat_static:
+            st.markdown('**Basic fields (.mat data)**')
+            st.dataframe(static_df, use_container_width=True)
+        
+        with mat_custom:
+            st.markdown('**Custom fields (.mat data)**')
+            st.data_editor(
+                st.session_state['mat_fields'],
+                num_rows='dynamic',
+                key='mat_fields_edit_delta',
+                on_change=save_mat_fields
+            )
+
+        #has_data = any(row for row in df.to_dict(orient='records') if any(row.get(field) for field in ['name_q', 'cas_q', 'smiles_q','cid_q']))
+        # use this as a counter
+        #entries_with_content = sum(1 for row in df.to_dict(orient='records') if any(row.get(field) for field in ['name_q', 'cas_q', 'smiles_q','cid_q']))
+        
     # end
     
 def render_lib_compile():
     st.header('lib module; assembly')
     st.caption('Two-step assembly of MassBank-format spectral library')
-    st.markdown(
-        """
-        - **Assembly**
-            - Generates individual .txt files (MassBank-format) and an .msp library file from the pre-assembly sheet
-        """
-    )
-    input_keys = ['mode', 'precomp_data', 'acc_start', 'acc_full', 'acc_short']
-    for key in input_keys + ['comp_data', 'output_sheet']:
-        if key not in st.session_state:
-            st.session_state[key] = None
     
-    # --- SELECT MODE ---
-    mode = st.radio(
-        'ionization mode',
-        options=['pos', 'neg'],
-        index=0,  # default selection
-        horizontal=True  # this looks nicer here
-    )
-    st.session_state['mode'] = mode
-    
-    # --- INPUT ---
-    precomp_sheet = st.file_uploader('pre-assembly sheet', type=['csv', 'xlsx'])
-    preferred_key = 'library_id'
-    if precomp_sheet is not None:
-        try:
-            precomp_data = gu.sheet_to_dict(precomp_sheet, preferred_key)
-            # filter here, by default --- for now.
-            precomp_data = au.filter_preComp_app(precomp_data, mode) 
-            st.session_state['precomp_data'] = precomp_data
-        except Exception as e:
-            st.error(f'Error reading file: {str(e)}')
-            st.session_state['precomp_data'] = None
-    else:
-        st.session_state['precomp_data'] = None
+    # also init parameter stuff
+    if 'txt_fields' not in st.session_state or not isinstance(st.session_state['txt_fields'], pd.DataFrame):
+        st.session_state['txt_fields'] = pd.DataFrame(
+            [{'storage_tag': k, 'massbank_tag': v} for k, v in cu.FIELD_CONVERSION.items()]
+        )
         
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        acc_start = st.number_input("start accession number", min_value=1, value=1, step=1)
-        st.session_state['acc_start'] = acc_start
-    with col2:
-        acc_full = st.text_input("full accession prefix", value="MSBNK-UNI_LAB-SHORTACC")
-        st.session_state['acc_full'] = acc_full
-    with col3:
-        acc_short = st.text_input("short accession prefix", value="SHORTACC")
-        st.session_state['acc_short'] = acc_short
+    if 'txt_fields_edit_buffer' not in st.session_state:
+        st.session_state['txt_fields_edit_buffer'] = st.session_state['txt_fields'].copy()
+
+    #print(st.session_state['txt_fields'])
+                
+    # try settings-window to allow field customization
+    if st.button("⚙️ Parameters"):
+        st.session_state['show_comp_param'] = not st.session_state.get('show_comp_param', False)
+        
+    if not st.session_state.get('show_comp_param', False):
     
-    # --- ASSEMBLY BLOCK ---
-    all_ready = all(st.session_state[k] is not None for k in input_keys)
-    if all_ready:
-        st.success('All required data loaded. Ready to proceed!')
-        if st.button('Perform assembly'):
+        st.markdown(
+            """
+            - **Assembly**
+                - Generates individual .txt files (MassBank-format) and an .msp library file from the pre-assembly sheet
+            """
+        )    
+        
+        # see what is stored
+        #(st.session_state['txt_fields'])
+        
+        input_keys = ['mode', 'precomp_data', 'acc_start', 'acc_full', 'acc_short']
+        for key in input_keys + ['comp_data', 'output_sheet']:
+            if key not in st.session_state:
+                st.session_state[key] = None
+        
+        # --- SELECT MODE ---
+        mode = st.radio(
+            'ionization mode',
+            options=['pos', 'neg'],
+            index=0,  # default selection
+            horizontal=True  # this looks nicer here
+        )
+        st.session_state['mode'] = mode
+        
+        # --- INPUT ---
+        precomp_sheet = st.file_uploader('pre-assembly sheet', type=['csv', 'xlsx'])
+        preferred_key = 'library_id'
+        if precomp_sheet is not None:
             try:
-                # MAYBE think about how we do this ---
-                # right now we store both precomp and comp in memory
-                comp_data = au.compileLib_app(
-                    st.session_state['precomp_data'],
-                    st.session_state['acc_start'],
-                    st.session_state['acc_full'],
-                    st.session_state['acc_short'],
-                    st.session_state['mode']
-                )
-                st.session_state['comp_data'] = comp_data
-                st.success('Assembly complete!')
+                precomp_data = gu.sheet_to_dict(precomp_sheet, preferred_key)
+                # filter here, by default --- for now.
+                precomp_data = au.filter_preComp_app(precomp_data, mode) 
+                st.session_state['precomp_data'] = precomp_data
             except Exception as e:
-                st.error(f"Error during assembly: {e}")
-                st.session_state['comp_data'] = None
-        
-    # --- INTERACTIVE ---
-    if st.session_state.get('comp_data', None):
-        comp_data = st.session_state['comp_data']
-        
-        # create zip --- function creates txts, csv, msp
-        zip_buffer = au.create_compZip(
-            st.session_state['comp_data'],
-            st.session_state['mode']
-        )
-        st.download_button(
-            'Download assembly (.zip)',
-            zip_buffer,
-            file_name=f'full_export_{st.session_state["mode"]}.zip',
-            mime='application/zip'
-        )
-        
-        # --- PLOTTING ---
-        compound_options = []
-        compound_keys = []
-        for compound, data in st.session_state['comp_data'].items():
-            display_name = f"{data.get('acc', 'NOACC')} - {compound}"
-            compound_options.append(display_name)
-            compound_keys.append(compound)
-    
-        # Let the user select a compound
-        selected_idx = st.selectbox(
-            "View MS2",
-            options=range(len(compound_options)),
-            format_func=lambda i: compound_options[i]
-        )
-        selected_compound = compound_keys[selected_idx]
-        selected_data = comp_data[selected_compound]
-        # PLOT.
-        col1, col2 = st.columns([0.75, 0.25], vertical_alignment='center')
+                st.error(f'Error reading file: {str(e)}')
+                st.session_state['precomp_data'] = None
+        else:
+            st.session_state['precomp_data'] = None
+            
+        col1, col2, col3 = st.columns(3)
         with col1:
-            fig = au.plot_MS2(
-                selected_data,
-                selected_data['ms2_display'],
-                selected_data['precursor_mz'],
-                title=f'{selected_compound} {selected_data["ion_type"]}')
-            st.plotly_chart(fig, use_container_width=True)
+            acc_start = st.number_input("start accession number", min_value=1, value=1, step=1)
+            st.session_state['acc_start'] = acc_start
         with col2:
-            mol = Chem.MolFromSmiles(selected_data['smiles'])
-            if mol is not None:
-                img = Draw.MolToImage(mol)
-                img_bytes = io.BytesIO()
-                img.save(img_bytes, format='PNG')
-                st.image(img_bytes)
+            acc_full = st.text_input("full accession prefix", value="MSBNK-UNI_LAB-SHORTACC")
+            st.session_state['acc_full'] = acc_full
+        with col3:
+            acc_short = st.text_input("short accession prefix", value="SHORTACC")
+            st.session_state['acc_short'] = acc_short
+        
+        # --- ASSEMBLY BLOCK ---
+        all_ready = all(st.session_state[k] is not None for k in input_keys)
+        if all_ready:
+            st.success('All required data loaded. Ready to proceed!')
+            if st.button('Perform assembly'):
+                try:
+                    # MAYBE think about how we do this ---
+                    # right now we store both precomp and comp in memory
+                    comp_data = au.compileLib_app(
+                        st.session_state['precomp_data'],
+                        st.session_state['acc_start'],
+                        st.session_state['acc_full'],
+                        st.session_state['acc_short'],
+                        st.session_state['mode']
+                    )
+                    st.session_state['comp_data'] = comp_data
+                    st.success('Assembly complete!')
+                except Exception as e:
+                    st.error(f"Error during assembly: {e}")
+                    st.session_state['comp_data'] = None
+            
+        # --- INTERACTIVE ---
+        if st.session_state.get('comp_data', None):
+            comp_data = st.session_state['comp_data']
+            
+            # create zip --- function creates txts, csv, msp
+            
+            # here we need to get the fields
+            txt_fields = st.session_state['txt_fields'].dropna(subset=['storage_tag', 'massbank_tag'])
+            txt_fields = txt_fields[
+                (txt_fields['storage_tag'].str.strip() != '') & 
+                (txt_fields['massbank_tag'].str.strip() != '')]
+            
+            # needs to be reconverted to a dictionary
+            if not txt_fields.empty:
+                field_mapping = dict(zip(txt_fields['storage_tag'], txt_fields['massbank_tag']))
             else:
-                st.write(f'Invalid SMILES: {selected_data["smiles"]}')
+                field_mapping = au.FIELD_CONVERSION.copy()
+                
+            zip_buffer = au.create_compZip(
+                st.session_state['comp_data'],
+                st.session_state['mode'],
+                field_mapping
+            )
+            st.download_button(
+                'Download assembly (.zip)',
+                zip_buffer,
+                file_name=f'full_export_{st.session_state["mode"]}.zip',
+                mime='application/zip'
+            )
+            
+            # --- PLOTTING ---
+            compound_options = []
+            compound_keys = []
+            for compound, data in st.session_state['comp_data'].items():
+                display_name = f"{data.get('acc', 'NOACC')} - {compound}"
+                compound_options.append(display_name)
+                compound_keys.append(compound)
+        
+            # Let the user select a compound
+            selected_idx = st.selectbox(
+                'View MS2',
+                options=range(len(compound_options)),
+                format_func=lambda i: compound_options[i]
+            )
+            selected_compound = compound_keys[selected_idx]
+            selected_data = comp_data[selected_compound]
+            # PLOT.
+            col1, col2 = st.columns([0.75, 0.25], vertical_alignment='center')
+            with col1:
+                fig = au.plot_MS2(
+                    selected_data,
+                    selected_data['ms2_display'],
+                    selected_data['precursor_mz'],
+                    title=f'{selected_compound} {selected_data["ion_type"]}')
+                st.plotly_chart(fig, use_container_width=True)
+            with col2:
+                mol = Chem.MolFromSmiles(selected_data['smiles'])
+                if mol is not None:
+                    img = Draw.MolToImage(mol)
+                    img_bytes = io.BytesIO()
+                    img.save(img_bytes, format='PNG')
+                    st.image(img_bytes)
+                else:
+                    st.write(f'Invalid SMILES: {selected_data["smiles"]}')
+                
+    else:
+        st.markdown(
+            """
+            Assembly of MassBank-format .txt files can be customized below.
+            
+            A list comprising the baseline format and data fields is given below.
+            <br>To include additional fields, map a storage tag in the pre-assembly sheet (left column) with a MassBank-format tag (right column).
+            <br>The tags in the .txt file will be assembled in the order written here.
+            
+            Ensure any tags introduced, and their ordering, conforms to MassBank formatting!
+            """,
+            unsafe_allow_html=True
+        )
+        
+        mapping_col, empty_col = st.columns(2)
+        
+        #def save_txt_fields():
+        #    df = st.session_state['txt_fields_edit']
+        #    expected_cols = ['storage_tag', 'massbank_tag']
+        #    df = df.loc[:, expected_cols]
+        #    st.session_state['txt_fields'] = df
+            
+        def save_txt_fields():
+            # this shit is insane
+            changes = st.session_state['txt_fields_edit_delta']
+            df = st.session_state['txt_fields']
+        
+            for idx, edits in changes.get('edited_rows', {}).items():
+                for col, val in edits.items():
+                    df.at[idx, col] = val
+        
+            new_rows = changes.get('added_rows', [])
+            if new_rows:
+                new_df = pd.DataFrame(new_rows)
+                df = pd.concat([df, new_df], ignore_index=True)
+        
+            deleted = changes.get('deleted_rows', [])
+            if deleted:
+                df = df.drop(deleted)
+        
+            st.session_state['txt_fields'] = df.reset_index(drop=True)
+            st.session_state['txt_fields_edit_buffer'] = st.session_state['txt_fields'].copy()
+                
+        with mapping_col:
+            st.markdown('**Assembly tags & ordering (.txt files)**')
+            st.data_editor(
+                st.session_state['txt_fields_edit_buffer'],
+                num_rows='dynamic',
+                key='txt_fields_edit_delta',
+                on_change=save_txt_fields
+            )
+            
+        print(st.session_state['txt_fields'])
+        
+        #with mapping_col:
+        #    st.markdown('**Assembly tags & ordering (.txt files)**')
+        #    txt_df = st.data_editor(
+        #        st.session_state['txt_fields'],
+        #        num_rows='dynamic',
+        #        key='txt_f'
+        #    )
+        
+        #with mapping_col:
+        #    st.markdown('**Assembly tags & ordering (.txt files)**')
+        #    st.data_editor(
+        #        st.session_state['txt_fields_edit'],
+        #        num_rows='dynamic',
+        #        key='txt_fields_edit',
+        #        on_change=save_txt_fields
+        #    )
+        
+        with empty_col:
+            pass
+            
+        #st.session_state['txt_fields'] = txt_df
 
     # end
                 

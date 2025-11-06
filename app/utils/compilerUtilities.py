@@ -214,9 +214,9 @@ def gather_matData(mode, folder_path='input/mat'):
 #parse_matFile('input/mat/run6_exports/non-prio/25/pos/ID10760_8.29_287.16.mat', dictionary, 'pos')
 #dictionary = gather_matData('neg')
 
-def create_compilation_dictionary(mat_dictionary):           
+def create_compilation_dictionary(mat_dictionary, storage_fields):           
     # create dictionary with all storage fields and transfer mat data
-    dictionary = {key: {col: None for col in STORAGE_FIELDS} for key in mat_dictionary.keys()}
+    dictionary = {key: {col: None for col in storage_fields} for key in mat_dictionary.keys()}
     for compound in dictionary:
         for col in dictionary[compound]:
             if compound in mat_dictionary and col in mat_dictionary[compound]:

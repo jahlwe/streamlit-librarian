@@ -252,6 +252,7 @@ def parse_matFile_app(
     file, 
     dictionary, 
     mode,
+    custom_mat_fields={},
     normalize_ms2=True
 ):
     current_compound = None
@@ -285,6 +286,12 @@ def parse_matFile_app(
                     if storage in ['retention_time', 'precursor_mz']:
                         value = round(float(value), 2 if storage == 'retention_time' else 5)
                     current_record[storage] = value
+                    
+            if custom_mat_fields: # custom mat fields
+                for field, storage in custom_mat_fields.items():
+                    if line.startswith(field):
+                        value = line.split(': ', 1)[1].strip()
+                        current_record[storage] = value
                     
             if line.startswith('MSTYPE: MS2'):
                 reading_peaks = True
@@ -321,12 +328,13 @@ def parse_matFile_app(
         
     return dictionary
 
-def gather_matData_app(mat_files_dict, mode):
+def gather_matData_app(mat_files_dict, mode, custom_mat_fields={}):
     mat_dictionary = {}
+    print(custom_mat_fields)
     for name, file_obj in mat_files_dict.items():
         if f'{mode}/' in name:
             # folder names are retained, so use it for mode filtering
-            mat_dictionary = parse_matFile_app(file_obj, mat_dictionary, mode)
+            mat_dictionary = parse_matFile_app(file_obj, mat_dictionary, mode, custom_mat_fields)
     return mat_dictionary
 
 def add_manual_metadata_app(dictionary, metadata_file):
@@ -469,10 +477,11 @@ def adduct_checker(compound, data):
 
 # combined assembling preComp dict with the preparation steps.
 def preCompile_app(
-    mode, 
+    mode,
     pcq_data, 
     metadata_tsv,
     mat_data,
+    storage_fields,
     rti_data=None,
     cf_data=None,
     annotate_fragments=True,
@@ -480,8 +489,8 @@ def preCompile_app(
 ):
     if mat_data:
         # we do call for create compilation dictionary here
-        # so we don't need to have a STORAGE_FIELDS version in this file
-        dictionary = cu.create_compilation_dictionary(mat_data)
+        # now need to bring the full, possibly custom storage fields in explicitly
+        dictionary = cu.create_compilation_dictionary(mat_data, storage_fields)
         dictionary = cu.add_chemical_metadata(dictionary, pcq_data)
         dictionary = add_manual_metadata_app(dictionary, metadata_tsv)
         
@@ -492,8 +501,6 @@ def preCompile_app(
             dictionary = add_cfData_app(dictionary, cf_data)
             
     validate = True # for ion type stuff below...
-    
-    print('hello')
     
     if dictionary:
         total = len(dictionary)
@@ -664,16 +671,16 @@ def reformat_charged_formula(formula):
     else: # if for some reason a non-charged formula is put through the function
         return formula
 
-def write_txtFile_app(compound, data, field_order=None):
+def write_txtFile_app(compound, data, field_mapping, field_order=None):
     """
     Adapted helper from compilerUtilities...
     Returns full .txt file layout as a string.
     """
     data['library_id'] = compound # do we still need this? keep 4 now...
     output = io.StringIO()
-    fields = field_order if field_order else FIELD_CONVERSION.keys()
+    fields = field_order if field_order else field_mapping.keys()
     for field in fields:
-        mb_field = FIELD_CONVERSION.get(field)
+        mb_field = field_mapping.get(field)
         if not mb_field:
             continue
         value = data.get(field)
@@ -713,12 +720,12 @@ def write_mspFile_app(comp_dict, mode):
     return msp_output.getvalue()
 
 # create everything inside the zip file is a good solution
-def create_compZip(comp_data, mode):
+def create_compZip(comp_data, mode, field_mapping):
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, 'w') as zipf:
         # add .txt files
         for compound, data in comp_data.items():
-            txt_content = write_txtFile_app(compound, data)
+            txt_content = write_txtFile_app(compound, data, field_mapping)
             txt_filename = f'{compound}_{data["short_acc"]}.txt'
             zipf.writestr(f'{mode}/txt/{txt_filename}', txt_content)
         
