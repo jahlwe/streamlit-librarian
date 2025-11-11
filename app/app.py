@@ -927,117 +927,211 @@ def render_utilities():
     # initialize session variables
     rti_keys = ['rti_pcq_data', 'rti_exp_data']
     fc_keys = ['fc_upload', 'zip_bytes']
+    
     for key in rti_keys + fc_keys:
         if key not in st.session_state:
             st.session_state[key] = None
     
-    # ---- RTI ---
-    st.markdown(
-        """
-        **RTI web app sheet generator**  
-        Upload a pcq sheet and a .zip archive of experimental data
-        to generate .csv sheets for input into the RTI web app
-        """
-    )
-    
-    rti_col1, rti_col2, rti_col3 = st.columns([1,2,2], vertical_alignment='top')
-    
-    with rti_col1:
-        mode = st.radio(
-            'ionization mode',
-            options=['pos', 'neg'],
-            index=0,  # default selection
-            horizontal=False
+    if 'mgf_fields' not in st.session_state or not isinstance(st.session_state['mgf_fields'], pd.DataFrame):
+        st.session_state['mgf_fields'] = pd.DataFrame(
+            [{'mgf_tag': None, 'mat_tag': None}]
         )
-        st.session_state['mode'] = mode
         
-    with rti_col2:
-        pcq_sheet = st.file_uploader(label='pcq sheet', type=['csv', 'xlsx'])
-        if pcq_sheet is not None:
-            try:
-                pcq_data = gu.sheet_to_dict(pcq_sheet)
-                st.session_state['rti_pcq_data'] = pcq_data
-            except:
-                pass
+    if 'mgf_fields_edit_buffer' not in st.session_state:
+        st.session_state['mgf_fields_edit_buffer'] = st.session_state['mgf_fields'].copy()
+
+    #print(st.session_state['txt_fields'])
+                
+    # try settings-window to allow field customization
+    if st.button("⚙️ Parameters"):
+        st.session_state['show_util_param'] = not st.session_state.get('show_util_param', False)
+        
+    if not st.session_state.get('show_util_param', False):
+    
+    
+    
+        # ---- RTI ---
+        st.markdown(
+            """
+            **RTI web app sheet generator**  
+            Upload a pcq sheet and a .zip archive of experimental data
+            to generate .csv sheets for input into the RTI web app
+            """
+        )
+        
+        rti_col1, rti_col2, rti_col3 = st.columns([1,2,2], vertical_alignment='top')
+        
+        with rti_col1:
+            mode = st.radio(
+                'ionization mode',
+                options=['pos', 'neg'],
+                index=0,  # default selection
+                horizontal=False
+            )
+            st.session_state['mode'] = mode
             
-    with rti_col3:
-        exp_archive = st.file_uploader('experimental data (.mat, in .zip)', type=['zip'])
-        if exp_archive is not None:
-            archive_type = filetype.guess(exp_archive.getvalue()).extension
-            exp_files_dict = au.read_archive(exp_archive, archive_type)
-            exp_files_dict = {k: v for k, v in exp_files_dict.items() if (k.endswith('.mat') and f'{mode}/' in k)}
-            st.info(f'{len(exp_files_dict)} .mat ({mode}) files recognized')
-            if len(exp_files_dict) > 0:
-            # process with app-specific gather_matData
-                exp_data = au.gather_matData_app(exp_files_dict, mode)
-                st.session_state['rti_exp_data'] = exp_data
-                print(exp_data)
+        with rti_col2:
+            pcq_sheet = st.file_uploader(label='pcq sheet', type=['csv', 'xlsx'])
+            if pcq_sheet is not None:
+                try:
+                    pcq_data = gu.sheet_to_dict(pcq_sheet)
+                    st.session_state['rti_pcq_data'] = pcq_data
+                except:
+                    pass
+                
+        with rti_col3:
+            exp_archive = st.file_uploader('experimental data (.mat, in .zip)', type=['zip'])
+            if exp_archive is not None:
+                archive_type = filetype.guess(exp_archive.getvalue()).extension
+                exp_files_dict = au.read_archive(exp_archive, archive_type)
+                exp_files_dict = {k: v for k, v in exp_files_dict.items() if (k.endswith('.mat') and f'{mode}/' in k)}
+                st.info(f'{len(exp_files_dict)} .mat ({mode}) files recognized')
+                if len(exp_files_dict) > 0:
+                # process with app-specific gather_matData
+                    exp_data = au.gather_matData_app(exp_files_dict, mode)
+                    st.session_state['rti_exp_data'] = exp_data
+                    print(exp_data)
+                else:
+                    st.session_state['rti_exp_data'] = None
             else:
                 st.session_state['rti_exp_data'] = None
-        else:
-            st.session_state['rti_exp_data'] = None
-            
-    # ready check for RTI sheet generation
-    rti_ready = all(st.session_state[k] is not None for k in rti_keys)
-    if rti_ready:
-        if st.button('generate RTI sheet(s)'):
-            try:
-                rti_dict = cu.create_compilation_dictionary(st.session_state['rti_exp_data'])
-                rti_dict = cu.add_chemical_metadata(rti_dict, st.session_state['rti_pcq_data'])
-                csv_sheet_dict = au.generate_rtiSheets_app(rti_dict)
-                if len(csv_sheet_dict) > 0:
-                    # get csv files into an archive and make it downloadable
-                    zip_buffer = io.BytesIO() # use this
-                    with zipfile.ZipFile(zip_buffer, mode='w', compression=zipfile.ZIP_DEFLATED) as zf:
-                        for filename, csv_content in csv_sheet_dict.items():
-                            fname = f'{filename}.csv' if not filename.endswith('.csv') else filename
-                            zf.writestr(fname, csv_content)
-                    # return buffer cursor after wrting
-                    zip_buffer.seek(0)
-                    
-                    st.download_button(
-                        label='download RTI sheet(s) (.zip)',
-                        data=zip_buffer,
-                        file_name='rti_sheets.zip',
-                        mime='application/zip')
-                else:
-                    st.warning('error --- no .csv sheets generated')
-            except Exception as e:
-                st.error(f"Error during assembly: {e}")
-                st.session_state['rti_output'] = None
                 
-    # ---- FILE CONV ----
-    st.markdown(
-        """
-        **.mgf to .mat file converter**  
-        Upload an .mgf file with exported feature data (e.g., from mzMine)
-        to generate single, Librarian-compatible .mat-format files
-        """
-    )
-    
-    fc_col1, fc_col2, fc_col3 = st.columns([1,2,2], vertical_alignment='top')
-    
-    with fc_col2:
-        mgf_file = st.file_uploader(label='.mgf file', type=['mgf'])
-        if mgf_file is not None:
-            try:
-                st.session_state['fc_upload'] = True
-                mgf_content = mgf_file.getvalue().decode('utf-8')
-                feature_dict = au.parse_mgf_app(mgf_content)
-                print(feature_dict)
-                st.session_state['zip_bytes'] = au.dict2mat_zip(feature_dict)
-            except Exception as e:
-                st.error(f'Failed to parse upload: {e}')
-        else:
-            st.session_state['fc_upload'] = False
+        # ready check for RTI sheet generation
+        rti_ready = all(st.session_state[k] is not None for k in rti_keys)
+        if rti_ready:
+            if st.button('generate RTI sheet(s)'):
+                try:
+                    rti_dict = cu.create_compilation_dictionary(st.session_state['rti_exp_data'])
+                    rti_dict = cu.add_chemical_metadata(rti_dict, st.session_state['rti_pcq_data'])
+                    csv_sheet_dict = au.generate_rtiSheets_app(rti_dict)
+                    if len(csv_sheet_dict) > 0:
+                        # get csv files into an archive and make it downloadable
+                        zip_buffer = io.BytesIO() # use this
+                        with zipfile.ZipFile(zip_buffer, mode='w', compression=zipfile.ZIP_DEFLATED) as zf:
+                            for filename, csv_content in csv_sheet_dict.items():
+                                fname = f'{filename}.csv' if not filename.endswith('.csv') else filename
+                                zf.writestr(fname, csv_content)
+                        # return buffer cursor after wrting
+                        zip_buffer.seek(0)
+                        
+                        st.download_button(
+                            label='download RTI sheet(s) (.zip)',
+                            data=zip_buffer,
+                            file_name='rti_sheets.zip',
+                            mime='application/zip')
+                    else:
+                        st.warning('error --- no .csv sheets generated')
+                except Exception as e:
+                    st.error(f"Error during assembly: {e}")
+                    st.session_state['rti_output'] = None
+                    
+        # ---- FILE CONV ----
+        st.markdown(
+            """
+            **.mgf to .mat file converter**  
+            Upload an .mgf file with exported feature data (e.g., from mzMine)
+            to generate single, Librarian-compatible .mat-format files
+            """
+        )
         
-        if st.session_state['zip_bytes'] is not None and st.session_state['fc_upload']:
-            st.download_button(
-                label='Download .mat files (in .zip)',
-                data=st.session_state['zip_bytes'],
-                file_name='mat_files.zip',
-                mime='application/zip'
+        fc_col1, fc_col2, fc_col3 = st.columns([1,2,2], vertical_alignment='top')
+        
+        with fc_col2:
+            mgf_file = st.file_uploader(label='.mgf file', type=['mgf'])
+            if mgf_file is not None:
+                try:
+                    st.session_state['fc_upload'] = True
+                    mgf_content = mgf_file.getvalue().decode('utf-8')
+                    
+                    # custom field stuff
+                    mgf_fields = st.session_state['mgf_fields'].dropna(subset=['mgf_tag', 'mat_tag'])
+                    mgf_fields = mgf_fields[
+                        (mgf_fields['mgf_tag'].str.strip() != '') & 
+                        (mgf_fields['mat_tag'].str.strip() != '')]
+                    
+                    if not mgf_fields.empty: 
+                        custom_mgf_fields = dict(zip(mgf_fields['mgf_tag'], mgf_fields['mat_tag']))
+                        print(custom_mgf_fields)
+                    else:
+                        custom_mgf_fields = {}
+                        
+                    print(custom_mgf_fields)
+                    
+                    # basic fields
+                    #field_mapping = au.MGF_MAT_FIELDS.copy()
+                    
+                    #if custom_mgf_fields:
+                    #    for field in custom_mgf_fields.values():
+                    #        if field not in field_mapping:
+                    #            field_mapping.append(field)
+                    
+                    feature_dict = au.parse_mgf_app(mgf_content, custom_mgf_fields)
+                    print(feature_dict)
+                    st.session_state['zip_bytes'] = au.dict2mat_zip(feature_dict, custom_mgf_fields)
+                except Exception as e:
+                    st.error(f'Failed to parse upload: {e}')
+            else:
+                st.session_state['fc_upload'] = False
+            
+            if st.session_state['zip_bytes'] is not None and st.session_state['fc_upload']:
+                st.download_button(
+                    label='Download .mat files (in .zip)',
+                    data=st.session_state['zip_bytes'],
+                    file_name='mat_files.zip',
+                    mime='application/zip'
+                )
+        
+    else:
+        st.markdown(
+            """
+            Data extraction from .mgf files (to .mat files) can be customized below.
+            
+            To extract data from additional user-defined .mgf-file fields, please entry the respective field
+            tag and a storage name in the editable frame below. <br>A list of baseline extracted data is given
+            in the table on the left.
+            """,
+            unsafe_allow_html=True
+        )
+            
+        def save_mgf_fields():
+            # this shit is insane
+            changes = st.session_state['mgf_fields_edit_delta']
+            df = st.session_state['mgf_fields']
+        
+            for idx, edits in changes.get('edited_rows', {}).items():
+                for col, val in edits.items():
+                    df.at[idx, col] = val
+        
+            new_rows = changes.get('added_rows', [])
+            if new_rows:
+                new_df = pd.DataFrame(new_rows)
+                df = pd.concat([df, new_df], ignore_index=True)
+        
+            deleted = changes.get('deleted_rows', [])
+            if deleted:
+                df = df.drop(deleted)
+        
+            st.session_state['mgf_fields'] = df.reset_index(drop=True)
+            st.session_state['mgf_fields_edit_buffer'] = st.session_state['mgf_fields'].copy()
+                
+        mapping_col, empty_col = st.columns(2)
+
+        static_df = pd.DataFrame(list(au.MGF_MAT_FIELDS.items()), columns=['mgf_tag', 'mat_tag'])
+
+        with mapping_col:
+            st.markdown('**Basic fields (.mgf data)**')
+            st.dataframe(static_df, use_container_width=True)
+
+        with empty_col:
+            st.markdown('**Custom fields (.mgf data)**')
+            st.data_editor(
+                st.session_state['mgf_fields'],
+                num_rows='dynamic',
+                key='mgf_fields_edit_delta',
+                on_change=save_mgf_fields
             )
+            
+        print(st.session_state['mgf_fields'])
             
     # end
 
@@ -1072,3 +1166,4 @@ if __name__ == '__main__':
     app()
     
 # streamlit run stapp.py 
+

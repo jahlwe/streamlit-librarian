@@ -852,7 +852,7 @@ MGF_MAT_FIELDS = { # field correspondence; 'MGF field': 'MAT field'
     # we deal with the name separately
 }
 
-def parse_mgf_app(mgf_input):
+def parse_mgf_app(mgf_input, custom_mgf_fields={}):
     # basic stuff, we read the mgf and turn it into a dictionary
     # then we flip the dictionary into a set of mat files
     feature_dict = {}
@@ -902,14 +902,19 @@ def parse_mgf_app(mgf_input):
                 value = value.strip()
                 if field == 'NAME':
                     current_compound = value
-                if field in MGF_MAT_FIELDS:                            
+                if field in MGF_MAT_FIELDS.keys():                            
                     feature_data[field] = value
+                if custom_mgf_fields:
+                    if field in custom_mgf_fields.keys():
+                        feature_data[field] = value
                 if field == 'Num peaks':
                     reading_peaks = True
                 
     return feature_dict
             
-def dict2mat_zip(feature_dict):
+
+
+def dict2mat_zip(feature_dict, custom_mgf_fields={}):
     # create .mat files
     if not feature_dict:
         return
@@ -918,6 +923,9 @@ def dict2mat_zip(feature_dict):
     zip_buffer = io.BytesIO()
     
     date_folder = datetime.now().strftime('%Y-%m-%d')
+    
+    # get field stuff in order    
+    basic_mgf_fields = MGF_MAT_FIELDS.copy()
         
     with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
         for compound, data in feature_dict.items():
@@ -937,10 +945,11 @@ def dict2mat_zip(feature_dict):
             lines = []
             lines.append(f'NAME: {compound}')
             
-            for mgf_key in ('RTINSECONDS', 'PEPMASS', 'ADDUCT', 'IONMODE', 
-                            'COLLISION_ENERGY', 'FRAGMENTATION_METHOD', 'INSTRUMENT_TYPE'):
+            for mgf_key in basic_mgf_fields.keys():
                 if mgf_key in data:
-                    mat_key = MGF_MAT_FIELDS.get(mgf_key, mgf_key)
+                    if mgf_key == 'Num peaks':
+                        continue
+                    mat_key = basic_mgf_fields.get(mgf_key, mgf_key)
                     value = data[mgf_key]
                     if mgf_key == 'IONMODE':
                         value = value.capitalize()
@@ -953,6 +962,13 @@ def dict2mat_zip(feature_dict):
                         except ValueError:
                             value = value
                     lines.append(f'{mat_key}: {value}')
+            
+            if custom_mgf_fields:
+                for mgf_key in custom_mgf_fields.keys():
+                    if mgf_key in data:
+                        mat_key = custom_mgf_fields.get(mgf_key, mgf_key)
+                        value = data[mat_key]
+                        lines.append(f'{mat_key}: {value}')
                 
             lines.append('MSTYPE: MS2') # need this 
             num_peaks = data.get('Num peaks', len(data.get('peak_data', [])))
