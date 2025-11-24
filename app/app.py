@@ -29,7 +29,7 @@ from PIL import Image
 # streamlit
 def app():
     st.set_page_config(page_title='librarian', layout='wide')
-    st.logo('static/logo.png')
+    st.logo('static/logo.png', size='large')
     
     # --- MODULES ---
     st.sidebar.title('modules')
@@ -39,6 +39,23 @@ def app():
         submodule = st.sidebar.radio('Sub-module:', ['pre-assembly', 'assembly'])
     else: 
         submodule = None
+        
+    # scilife logo? links?
+    # do this to push stuff down a little
+    st.sidebar.markdown("<br>", unsafe_allow_html=True)
+    st.sidebar.image(
+        "static/sll.png", width=200)
+    st.sidebar.markdown(
+        """
+        <p style="font-size:14px; color:#0c616aff; margin-bottom:4px;">
+            <a href="https://www.scilifelab.se/units/exposomics/" target="_blank" style="color:#0c616aff;">National Facility for Exposomics</a>
+        </p>
+        <p style="font-size:14px; color:#0c616aff; margin-bottom:4px;">
+        <a href="https://www.scilifelab.se/" target="_blank" style="color:#0c616aff;">SciLifeLab</a>
+        </p>
+        """,
+    unsafe_allow_html=True,
+)
 
     # --- SESSION RESET LOGIC ---
     # track which module is active
