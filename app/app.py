@@ -464,9 +464,8 @@ def render_lib_precomp():
         settings_col1, settings_col2, settings_col3 = st.columns(3, vertical_alignment='center')
         
         with settings_col1:
-            annot_box = st.checkbox(
+            annot = st.checkbox(
                 'perform MS2 annotation',
-                value=bool(st.session_state.get('annot', False)),
                 key='annot'
             )
             
@@ -1206,7 +1205,7 @@ def render_readme():
     )
     
     # download zip with example data
-    with open('static/readme/librarian_exampleData.zip', 'rb') as file:
+    with open('static/librarian_exampleData.zip', 'rb') as file:
         example_data = st.download_button(
             label='📦 Download example data (.zip)',
             data=file.read(),
@@ -1216,12 +1215,12 @@ def render_readme():
     
     # worked example image slider
     guide_images = [
-        'static/readme/guide1.png',
-        'static/readme/guide2.png',
-        'static/readme/guide3.png',
-        'static/readme/guide4.png',
-        'static/readme/guide5.png',
-        'static/readme/guide6.png',
+        'static/guide1.png',
+        'static/guide2.png',
+        'static/guide3.png',
+        'static/guide4.png',
+        'static/guide5.png',
+        'static/guide6.png',
     ]
     image_names = ['1','2','3','4','5','6']
     
