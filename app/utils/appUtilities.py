@@ -484,7 +484,8 @@ def preCompile_app(
     storage_fields,
     rti_data=None,
     cf_data=None,
-    annotate_fragments=True,
+    # True for annotation, false for remove unannotated as basic settings
+    annotate_fragments=(True, False),
     progress_callback=None
 ):
     if mat_data:
@@ -512,7 +513,7 @@ def preCompile_app(
                 validate = False
             else:
                 validate = True
-            print('past assigner')
+            #print('past assigner')
             # generate record_title and save sheet
             short_name = re.sub(r' feature no\. \d+$', '', compound)
             record_title = '; '.join(
@@ -523,13 +524,27 @@ def preCompile_app(
             if validate:
                 data['ion_type'], data['adduct_validated'] = adduct_checker(compound, data)
             # also! annotate fragments.
-            if annotate_fragments:
+            if annotate_fragments[0]: # if we should annotate, this is True
                 try:
                     print(f'annotating {compound} MS2')
                     loss_fragments = fa.generate_ref_fragments(data)
                     loss_fragments = fa.generate_more_fragments(data, loss_fragments)
                     match_list = fa.match_loss_fragments(data, loss_fragments)
                     data['frag_annot'] = fa.format_annotation(data, match_list)
+                    if annotate_fragments[1]: # if we should discard, this is True
+                        print('discarding unannotated fragments')
+                        ms2_trimmed = []
+                        fa_trimmed = []
+                        for j, (mz, abs_int, norm_int) in enumerate(data.get('ms2_norm')):
+                            # fragment formula is None if unassigned
+                            # this is the data that corresponds to current peak
+                            frag_annot = data['frag_annot'][j]
+                            if frag_annot[1] is not None:
+                                ms2_trimmed.append((mz, abs_int, norm_int))
+                                fa_trimmed.append(frag_annot)
+                        print(f'trimmed from {len(data.get("ms2_norm", []))} to {len(ms2_trimmed)} peaks')
+                        data['ms2_norm'] = ms2_trimmed
+                        data['frag_annot'] = fa_trimmed
                 except Exception as e:
                     data['frag_annot'] = None
                     print(f'failed fragment annotation for {compound}: {e}')

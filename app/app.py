@@ -421,6 +421,11 @@ def render_lib_precomp():
     for key in input_keys + optional_input_keys + ['output', 'precomp_ready', 'prev_inputs']:
         if key not in st.session_state:
                 st.session_state[key] = None
+    for key in ('annot', 'only_keep_annot'):
+        if key not in st.session_state and key == 'annot':
+            st.session_state[key] = True
+        if key not in st.session_state and key == 'only_keep_annot':
+            st.session_state[key] = False
              
     # also init parameter stuff
     if 'mat_fields' not in st.session_state or not isinstance(st.session_state['mat_fields'], pd.DataFrame):
@@ -444,9 +449,10 @@ def render_lib_precomp():
         )
         
         # do these stick when we come back here...
-        print(st.session_state['mat_fields'])
+        #print(st.session_state['mat_fields'])
+        #print((st.session_state['annot'], st.session_state['only_keep_annot']))
         
-        # --- SELECT MODE ---
+        # --- SELECT MODE & ANNOTATION SETTING ---        
         mode = st.radio(
             'ionization mode',
             options=['pos', 'neg'],
@@ -454,6 +460,26 @@ def render_lib_precomp():
             horizontal=True  # this looks nicer here
         )
         st.session_state['mode'] = mode
+        
+        settings_col1, settings_col2, settings_col3 = st.columns(3, vertical_alignment='center')
+        
+        with settings_col1:
+            annot_box = st.checkbox(
+                'perform MS2 annotation',
+                value=bool(st.session_state.get('annot', False)),
+                key='annot'
+            )
+            
+        with settings_col2:
+            only_keep_annot = False
+            if st.session_state.get('annot', False):
+                only_keep_annot = st.checkbox(
+                    'filter unannotated fragments',
+                    value=bool(st.session_state.get('only_keep_annot', False)),
+                    key='only_keep_annot'
+                )
+            else:
+                st.session_state['only_keep_annot'] = False
         
         # --- UPLOADS ---
         # columns for horizontal layout
@@ -596,7 +622,8 @@ def render_lib_precomp():
                         # optional RTI and CF
                         rti_data=st.session_state.get('rti_data'),
                         cf_data=st.session_state.get('cf_data'),
-                        annotate_fragments=True,
+                        # send annotation settings as a tuple
+                        annotate_fragments=(st.session_state['annot'], st.session_state['only_keep_annot']),
                         progress_callback=progress_callback
                     )
                     output_buffer = io.StringIO()
@@ -821,7 +848,7 @@ def render_lib_compile():
             st.download_button(
                 'Download assembly (.zip)',
                 zip_buffer,
-                file_name=f'full_export_{st.session_state["mode"]}.zip',
+                file_name=f'assembly_{st.session_state["mode"]}.zip',
                 mime='application/zip'
             )
             
@@ -1177,10 +1204,46 @@ def render_readme():
         
         """
     )
+    
+    # download zip with example data
+    with open('static/readme/librarian_exampleData.zip', 'rb') as file:
+        example_data = st.download_button(
+            label='📦 Download example data (.zip)',
+            data=file.read(),
+            file_name='librarian_exampleData.zip',
+            mime='application/zip'
+        )
+    
+    # worked example image slider
+    guide_images = [
+        'static/readme/guide1.png',
+        'static/readme/guide2.png',
+        'static/readme/guide3.png',
+        'static/readme/guide4.png',
+        'static/readme/guide5.png',
+        'static/readme/guide6.png',
+    ]
+    image_names = ['1','2','3','4','5','6']
+    
+    slider_space, _ = st.columns([4,1])
+    with slider_space:
+        selected_idx = st.slider(
+            'User guide',
+            min_value=0,
+            max_value=len(guide_images)-1,  # fix: was len(guide_images)
+            value=0,
+            step=1
+            # format=... removed - not needed
+        )
+    
+    img_space, _ = st.columns([4,1])    
+    with img_space:
+        st.image(guide_images[selected_idx], caption=image_names[selected_idx], use_container_width=True)
+    
     # end
 
 if __name__ == '__main__':
     app()
     
-# streamlit run stapp.py 
+# streamlit run app.py 
 

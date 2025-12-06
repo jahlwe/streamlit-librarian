@@ -265,7 +265,15 @@ def add_manual_metadata(dictionary, manual_metadata='files/compiler/manual_metad
         for key, value in reader:
             manual_dictionary[key] = value
     for compound in dictionary:
-        dictionary[compound].update(manual_dictionary)
+        # do this to ensure we dont overwrite data that is already provided?
+        # e.g. we might have 'resolution' from a given .mat file, and should not 
+        # overwrite that with a general value that might apply to the rest of the dataset
+        # is there a risk we allow missing values to remain missing?
+        # shouldnt be, because we are not working from a .csv file at 
+        # this point, if a given .mat file has tag data but another one doesnt,
+        # the first will have tag = value and the other will not have that tag
+        manual_uniques = {k: v for k, v in manual_dictionary.items() if k not in dictionary[compound].keys()}
+        dictionary[compound].update(manual_uniques)
     return dictionary
 
 #dictionary = add_manual_metadata(dictionary)
