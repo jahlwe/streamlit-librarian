@@ -9,10 +9,10 @@ ENV HOME=/home/$USER
 # Add user to system
 RUN useradd -m -u 1000 $USER
 
-# Set working directory (this is where the code should go)
+# Set working directory
 WORKDIR $HOME/app
 
-# Update system and install dependencies.
+# Update system and install dependencies
 RUN apt-get update && apt-get install --no-install-recommends -y \
     build-essential \
     software-properties-common
@@ -34,7 +34,7 @@ RUN apt-get update && apt-get install --no-install-recommends -y \
 
 # Copy all files that the app needs (this will place the files in home/username/)
 COPY app/ $HOME/app/
-# more COPY commands here if you have other files to copy
+# more COPY commands here 
 
 # Install packages listed in requirements.txt with pip
 RUN pip install --no-cache-dir -r requirements.txt

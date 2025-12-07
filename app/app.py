@@ -1215,12 +1215,12 @@ def render_readme():
     
     # worked example image slider
     guide_images = [
-        '.streamlit/static/guide1.png',
-        '.streamlit/static/guide2.png',
-        '.streamlit/static/guide3.png',
-        '.streamlit/static/guide4.png',
-        '.streamlit/static/guide5.png',
-        '.streamlit/static/guide6.png',
+        './static/guide1.png',
+        './static/guide2.png',
+        './static/guide3.png',
+        './static/guide4.png',
+        './static/guide5.png',
+        './static/guide6.png',
     ]
     image_names = ['1','2','3','4','5','6']
     
