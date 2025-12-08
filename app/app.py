@@ -1139,7 +1139,7 @@ def render_utilities():
             For ThermoFisher XCalibur users.
             <br>Upload an output sheet from the mix module to generate XCalibur-format
             mass inclusion lists for targeted data-dependent acquisition 
-            <br>Adducts are generated for each mixture, for positive and negative ESI
+            <br>Adducts are generated for each mixture, for both positive and negative modes
             """,
         unsafe_allow_html=True
         )
