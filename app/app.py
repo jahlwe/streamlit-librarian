@@ -12,6 +12,7 @@ import utils.genericUtilities as gu
 import utils.pubchemUtilities as pu
 import utils.mixtureUtilities as mu
 import utils.compilerUtilities as cu
+import utils.ddaLists as dda
 import argparse
 import pandas as pd
 import io
@@ -103,7 +104,7 @@ def render_pcq():
             - If a suitable entry is known a priori, __CID__ queries are also supported
         - Query inputs are supplied directly in-browser or by uploading a sheet (.csv, .xlsx)
         - No need for salt (i.e., **X HCl**) pre-cleaning – salts are recognized and parent compound (i.e., **X**) data retrieved instead
-        - Use the `library_id` field if a specific "internal" name should be used for a compound during library assembly
+        - The `library_id` field is used to link chemical metadata to experimental data during library assembly
             - If left blank, `library_id` defaults to PubChem entry title names
             - ___N.B.!___ To ensure proper downstream management of chemical metadata, `library_id` values should be unique
         """
@@ -202,6 +203,9 @@ def render_pcq():
                     except Exception as e:
                         st.error(f'Error: {str(e)}')
                         st.session_state['pcq_success'] = False
+                        # partial results.... ?
+                        st.download_button('download partial results', st.session_state['pcq_output'].getvalue(),
+                                           file_name='pcq_out.csv')
     
         # display download button if processing was successful
         if st.session_state.get('pcq_success'):
@@ -210,7 +214,7 @@ def render_pcq():
                 st.download_button('download results', st.session_state['pcq_output'].getvalue(),
                                    file_name='pcq_out.csv')
                 
-    # ---- IN-BROWSER ---
+    # ---- IN-BROWSER ----
     elif pcq_submodule == 'in-browser':
         if 'in_browser_df' not in st.session_state or not isinstance(st.session_state['in_browser_df'], pd.DataFrame):
             st.session_state['in_browser_df'] = pd.DataFrame(
@@ -284,6 +288,9 @@ def render_pcq():
                         except Exception as e:
                             st.error(f'Error: {str(e)}')
                             st.session_state['pcq_success'] = False
+                            # .... partial download results?
+                            st.download_button('download partial results', st.session_state['pcq_output'].getvalue(),
+                                               file_name='pcq_out.csv')
                             
         # display dl button if query was successful
         if st.session_state.get('pcq_success'):
@@ -970,8 +977,9 @@ def render_utilities():
     # initialize session variables
     rti_keys = ['rti_pcq_data', 'rti_exp_data']
     fc_keys = ['fc_upload', 'zip_bytes']
+    dda_keys = ['dda_mix_data']
     
-    for key in rti_keys + fc_keys:
+    for key in rti_keys + fc_keys + dda_keys:
         if key not in st.session_state:
             st.session_state[key] = None
     
@@ -990,8 +998,6 @@ def render_utilities():
         st.session_state['show_util_param'] = not st.session_state.get('show_util_param', False)
         
     if not st.session_state.get('show_util_param', False):
-    
-    
     
         # ---- RTI ---
         st.markdown(
@@ -1124,6 +1130,98 @@ def render_utilities():
                     mime='application/zip'
                 )
         
+        # ---- DDA LISTS ----
+        # this is a minor one. creates dda lists for the thermo software.
+        
+        st.markdown(
+            """
+            **DDA list generator**  
+            For ThermoFisher XCalibur users.
+            <br>Upload an output sheet from the mix module to generate XCalibur-format
+            mass inclusion lists for targeted data-dependent acquisition 
+            <br>Adducts are generated for each mixture, for positive and negative ESI
+            """,
+        unsafe_allow_html=True
+        )
+        
+        dda_col1, dda_col2, dda_col3 = st.columns([1,2,2], vertical_alignment='top')
+        subcol1, subcol2, subcol3 = st.columns([1,2,2], vertical_alignment='top')
+        
+        with dda_col1:
+            pass
+        
+        with dda_col2:
+            mix_sheet = st.file_uploader(label='mix sheet', type=['csv', 'xlsx'])
+            if mix_sheet is None:
+                if st.session_state.get('dda_mix_data') is not None:
+                    st.session_state['dda_mix_data'] = None
+                    st.session_state['dda_zip'] = None
+                    st.rerun()  # Refresh UI immediately
+            else:
+                try:
+                    mix_data = gu.sheet_to_dict(mix_sheet)
+                    st.session_state['dda_mix_data'] = mix_data
+                except Exception as e:
+                    st.error(f'upload failed: {e}')
+                
+        with dda_col3:
+            col1, col2 = st.columns(2)
+            with col1:
+                max_mz = st.number_input(
+                    'mass range top end',
+                    min_value=2,
+                    max_value=2000,
+                    value=950,
+                    step=1
+                )
+                # above this m/z, also include double charge
+                double_charge_limit = st.number_input(
+                    'include 2x charge adducts above m/z',
+                    min_value=2,
+                    max_value=2000,
+                    value=600,
+                    step=1
+                )
+            with col2:
+                # since RTs are missing when injecting standards,
+                # we just set the value at the middle of the gradient run time
+                gradient_middle = st.number_input(
+                    'middle of LC gradient (min)',
+                    min_value=1,
+                    max_value=60,
+                    value=8,
+                    step=1,
+                )
+                rt_window = st.number_input(
+                    'RT window span (min)',
+                    min_value=1,
+                    max_value=60,
+                    value=15,
+                    step=1
+                )
+
+        with subcol2:
+            if st.session_state.get('dda_mix_data'):
+                if st.button('generate DDA list(s)'):
+                    try:
+                        settings = (max_mz, double_charge_limit, gradient_middle, rt_window)
+                        zip_buffer = dda.create_targetDDA_app(st.session_state['dda_mix_data'], settings, mode)
+                        st.session_state['dda_zip'] = zip_buffer
+                    except:
+                        pass
+                else:
+                    pass
+    
+            if st.session_state.get('dda_zip') and st.session_state.get('dda_mix_data'):
+                st.download_button(
+                    'Download DDA lists (.csv, in .zip)',
+                    st.session_state['dda_zip'].getvalue(),
+                    file_name='ddaLists.zip',
+                    mime='application/zip'
+                )
+    
+    # ---- PARAMETERS --- (adjust mgf to mat extraction)
+    
     else:
         st.markdown(
             """
@@ -1222,7 +1320,7 @@ def render_readme():
         './static/guide5.PNG',
         './static/guide6.PNG',
     ]
-    image_names = ['1','2','3','4','5','6']
+    image_names = ['0','1','2','3','4','5']
     
     slider_space, _ = st.columns([4,1])
     with slider_space:
