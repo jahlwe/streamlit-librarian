@@ -998,6 +998,63 @@ def render_utilities():
         st.session_state['show_util_param'] = not st.session_state.get('show_util_param', False)
         
     if not st.session_state.get('show_util_param', False):
+        
+        # ---- FILE CONV ----
+        st.markdown(
+            """
+            **.mgf to .mat file converter**  
+            Upload an .mgf file with exported feature data (e.g., from mzMine)
+            to generate single, Librarian-compatible .mat-format files
+            """
+        )
+        
+        fc_col1, fc_col2, fc_col3 = st.columns([1,2,2], vertical_alignment='top')
+        
+        with fc_col2:
+            mgf_file = st.file_uploader(label='.mgf file', type=['mgf'])
+            if mgf_file is not None:
+                try:
+                    st.session_state['fc_upload'] = True
+                    mgf_content = mgf_file.getvalue().decode('utf-8')
+                    
+                    # custom field stuff
+                    mgf_fields = st.session_state['mgf_fields'].dropna(subset=['mgf_tag', 'mat_tag'])
+                    mgf_fields = mgf_fields[
+                        (mgf_fields['mgf_tag'].str.strip() != '') & 
+                        (mgf_fields['mat_tag'].str.strip() != '')]
+                    
+                    if not mgf_fields.empty: 
+                        custom_mgf_fields = dict(zip(mgf_fields['mgf_tag'], mgf_fields['mat_tag']))
+                        print(custom_mgf_fields)
+                    else:
+                        custom_mgf_fields = {}
+                        
+                    print(custom_mgf_fields)
+                    
+                    # basic fields
+                    #field_mapping = au.MGF_MAT_FIELDS.copy()
+                    
+                    #if custom_mgf_fields:
+                    #    for field in custom_mgf_fields.values():
+                    #        if field not in field_mapping:
+                    #            field_mapping.append(field)
+                    
+                    feature_dict = au.parse_mgf_app(mgf_content, custom_mgf_fields)
+                    print(feature_dict)
+                    st.session_state['zip_bytes'] = au.dict2mat_zip(feature_dict, custom_mgf_fields)
+                except Exception as e:
+                    st.error(f'Failed to parse upload: {e}')
+            else:
+                st.session_state['fc_upload'] = False
+            
+            if st.session_state['zip_bytes'] is not None and st.session_state['fc_upload']:
+                st.download_button(
+                    label='Download .mat files (in .zip)',
+                    data=st.session_state['zip_bytes'],
+                    file_name='mat_files.zip',
+                    mime='application/zip'
+                )
+        
     
         # ---- RTI ---
         st.markdown(
@@ -1074,61 +1131,6 @@ def render_utilities():
                     st.error(f"Error during assembly: {e}")
                     st.session_state['rti_output'] = None
                     
-        # ---- FILE CONV ----
-        st.markdown(
-            """
-            **.mgf to .mat file converter**  
-            Upload an .mgf file with exported feature data (e.g., from mzMine)
-            to generate single, Librarian-compatible .mat-format files
-            """
-        )
-        
-        fc_col1, fc_col2, fc_col3 = st.columns([1,2,2], vertical_alignment='top')
-        
-        with fc_col2:
-            mgf_file = st.file_uploader(label='.mgf file', type=['mgf'])
-            if mgf_file is not None:
-                try:
-                    st.session_state['fc_upload'] = True
-                    mgf_content = mgf_file.getvalue().decode('utf-8')
-                    
-                    # custom field stuff
-                    mgf_fields = st.session_state['mgf_fields'].dropna(subset=['mgf_tag', 'mat_tag'])
-                    mgf_fields = mgf_fields[
-                        (mgf_fields['mgf_tag'].str.strip() != '') & 
-                        (mgf_fields['mat_tag'].str.strip() != '')]
-                    
-                    if not mgf_fields.empty: 
-                        custom_mgf_fields = dict(zip(mgf_fields['mgf_tag'], mgf_fields['mat_tag']))
-                        print(custom_mgf_fields)
-                    else:
-                        custom_mgf_fields = {}
-                        
-                    print(custom_mgf_fields)
-                    
-                    # basic fields
-                    #field_mapping = au.MGF_MAT_FIELDS.copy()
-                    
-                    #if custom_mgf_fields:
-                    #    for field in custom_mgf_fields.values():
-                    #        if field not in field_mapping:
-                    #            field_mapping.append(field)
-                    
-                    feature_dict = au.parse_mgf_app(mgf_content, custom_mgf_fields)
-                    print(feature_dict)
-                    st.session_state['zip_bytes'] = au.dict2mat_zip(feature_dict, custom_mgf_fields)
-                except Exception as e:
-                    st.error(f'Failed to parse upload: {e}')
-            else:
-                st.session_state['fc_upload'] = False
-            
-            if st.session_state['zip_bytes'] is not None and st.session_state['fc_upload']:
-                st.download_button(
-                    label='Download .mat files (in .zip)',
-                    data=st.session_state['zip_bytes'],
-                    file_name='mat_files.zip',
-                    mime='application/zip'
-                )
         
         # ---- DDA LISTS ----
         # this is a minor one. creates dda lists for the thermo software.
