@@ -1,2 +1,2 @@
 # streamlit-librarian
-Data management for HRMS library assembly
+A web application for high-resolution tandem mass spectral library assembly
