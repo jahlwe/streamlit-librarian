@@ -1314,6 +1314,7 @@ def render_readme():
         )
     
     # worked example image slider
+    # ...
     guide_images = [
         './static/guide1.PNG',
         './static/guide2.PNG',
