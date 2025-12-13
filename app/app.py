@@ -1321,8 +1321,9 @@ def render_readme():
         './static/guide4.PNG',
         './static/guide5.PNG',
         './static/guide6.PNG',
+        './static/guide7.PNG'
     ]
-    image_names = ['0','1','2','3','4','5']
+    image_names = ['0','1','2','3','4','5','6']
     
     slider_space, _ = st.columns([4,1])
     with slider_space:
