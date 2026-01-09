@@ -16,13 +16,30 @@ import re
 import math
 import io
 
+def is_empty(val):
+    """
+    Helper for checking missing value variants.
+    """
+    
+    if val is None:
+        return True
+    if isinstance(val, float) and math.isnan(val):
+        return True
+    if isinstance(val, str) and val.strip() == '':
+        return True
+    return False
+
 def deep_get(d, keys, default=None):
-    '''
-    Helper for diving into .json or other nested
-    structures. Enter names of lists, dicts, etc 
-    to navigate through to get where you want to 
-    go in the .json (or other structure) as 'keys'
-    '''
+    """
+    Helper for navigating nested dictionaries, e.g. PubChem entry .json data.
+    
+    Parameters & args:
+        d (dict): A dictionary
+        keys (list): A list containing the sequence of elements to navigate through
+    Returns:
+        Value associated with the final element
+    """
+    
     for key in keys:
         if callable(key): 
             d = key(d)
@@ -37,11 +54,11 @@ def deep_get(d, keys, default=None):
     return d
 
 def convert_value(value):
-    '''
-    Helper for value conversions when reading 
-    a sheet and creating a dictionary from it.
+    """
+    Helper for value conversions when reading a sheet and creating a dictionary from it. 
     Empty cells become None rather than float 'nan'.
-    '''
+    """
+    
     # handle NA-variants
     if value is None:
         return None
@@ -87,10 +104,17 @@ INTEGER_COLUMNS = ['pubchemCID','pos_count','neg_count','mb_recCount',
                    'gnps_recCount','cid_q']
 
 def sheet_to_dict(sheet, preferred_key='library_id'):
-    '''
-    Create a dictionary from a sheet-style 
-    (.csv, .xlsx) input file.
-    '''
+    """
+    Creates a dictionary from a spreadsheet (.csv, .xlsx) input file.
+    Used to turn Librarian-format spreadsheets into dictionaries for module operations.
+    
+    Parameters & args:
+        sheet (string): Name/path for spreadsheet
+        preferred_key (string): Spreadsheet column to use as dictionary keys
+    Returns:
+        dictionary (dict): A dictionary.
+    """
+    
     try:
         # need this to work with streamlit
         if hasattr(sheet, 'name'):
@@ -142,12 +166,17 @@ def sheet_to_dict(sheet, preferred_key='library_id'):
 #test = sheet_to_dict('output/prepTwoSheet.xlsx', 'vendorName')
 #dictionary = sheet_to_dict('output/pcq_out.csv')
 
-
 def dict_to_sheet(dictionary, file_name=None, fmat='.csv', buffer=None):
-    '''
-    Create a sheet-style output file (.csv, .xlsx) 
-    from a dictionary.
-    '''
+    """
+    Creates a spreadsheet (.csv, .xlsx) from a dictionary.
+    Output files created in chosen directories (CLI) or as downloadables (web-app)
+    
+    Parameters & args:
+        dictionary (dict): Dictionary to use
+    Returns:
+        Nothing (in-memory object buffer in web-app)
+    """
+    
     if not dictionary:
         print('input dictionary is empty')
         return None
@@ -200,6 +229,16 @@ PCQ_INIT_COLUMNS = [
 ]
 
 def sheet_to_idx_dict(sheet):
+    """
+    Modified version of sheet-to-dict fn, needed for the initial Librarian module.
+    Uses integer indexing rather than later column (e.g., library ID) indexing.
+
+    Parameters & args:
+        sheet (string): Name/path for spreadsheet
+    Returns:
+        idx_dict (dict): An integer-indexed dictionary.
+    """
+    
     try:
         # need this to work with streamlit
         if hasattr(sheet, 'name'):
@@ -243,10 +282,20 @@ def sheet_to_idx_dict(sheet):
 
 # this is probably not needed. actually it is needed. to save the pcq.
 # we just use an 'idx_dict'-format for pcq stuff, then we can revert
-# to indexing by name.
+# to indexing by name or ID.
+
 def idx_dict_to_sheet(
     dictionary, file_name=None, fmat='.csv', buffer=None
 ):
+    """
+    Modified version of dict-to-sheet fn, needed for the initial Librarian module.
+
+    Parameters & args:
+        dictionary (string): An integer-indexed dictionary.
+    Returns:
+        Nothing (in-memory object buffer in web-app)
+    """
+    
     if not dictionary:
         print('input dictionary is empty')
         return None

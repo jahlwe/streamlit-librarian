@@ -15,7 +15,18 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import NullFormatter
 
 def generate_adducts(dictionary):
-    pos_adducts = [ # This will do for now...
+    """
+    Generates theoretical adduct m/z as metadata for mixture distribution.
+    Currently, few of these are actually used for automated mixture distribution considerations.
+    May need to be updated later.
+
+    Parameters & args:
+        dictionary (dict): Dictionary with compound data to fill with adduct information
+    Returns:
+        dictionary (dict): The same input dictionary, now incl adduct information
+    """
+    
+    pos_adducts = [ # this will do for now...
         ("[M]+", -0.00055, 1),
         ("[M+H]+", 1.00728, 1),
         ("[M+NH4]+", 18.03437, 1),
@@ -41,11 +52,19 @@ def generate_adducts(dictionary):
     return dictionary
 
 def expected_mz(dictionary):
-    # Something about calculating one or several likely-to-be-observed
-    # masses so that this will be taken into account when making mixes.
-    # E.g., a natively (+)-charged compound at 181.05 m/z should not be
-    # paired with a compound where we expect 181.05 for [M+H]+.
-    # Could be expanded to include more adducts, 2x charges, etc.
+    """
+    Function that decides, for each compound, what m/z to consider for mixture distribution.
+    Currently, singly charged ions are the default expected ion type.
+    Natively charged cations are an exception, where the [M]+ (with appropriate charge) is expected.
+    
+    Only positive mode is considered --- the distribution of [M-H]- ions would not be different, only offset.
+    
+    Parameters & args:
+        dictionary (dict): Dictionary with compound data to fill with expected m/z information
+    Returns:
+        dictionary (dict): The same input dictionary, now incl expected m/z information
+    """
+    
     for compound in dictionary.keys():
         current_formula = str(dictionary[compound]['molecularFormula'])
         current_mass = dictionary[compound]['monoisotopicMass']
@@ -53,22 +72,31 @@ def expected_mz(dictionary):
             if '+' in current_formula:
                 charge_modifier = current_formula[-1]
                 charge_modifier = int(charge_modifier) if charge_modifier.isdigit() else 1
-                # We expect [M]+, divided by the charge
+                # we expect [M]+, divided by the charge
                 dictionary[compound]['expected_mz_pos'] = (dictionary[compound]['[M]+'] / charge_modifier)
-                # It won't show in neg, but throw in for completions sake
+                # it won't show in neg, but throw in for completions sake
                 dictionary[compound]['expected_mz_neg'] = dictionary[compound]['[M-H]-']
             elif '+' not in current_formula and current_mass > 900:
-                # We 'expect' double charges
+                # we 'expect' double charges
                 dictionary[compound]['expected_mz_pos'] = dictionary[compound]['[M+2H]2+']
                 dictionary[compound]['expected_mz_neg'] = dictionary[compound]['[M-2H]2-']
             elif '+' not in current_formula and current_mass < 900:
-                # Keep it simple for now, just basic adducts
+                # keep it simple for now, just basic adducts
                 dictionary[compound]['expected_mz_pos'] = dictionary[compound]['[M+H]+']
                 dictionary[compound]['expected_mz_neg'] = dictionary[compound]['[M-H]-']
         
     return dictionary
 
 def calculate_xlogp(dictionary):
+    """
+    Calculates logp for compounds from SMILES using RDKit; atom-based approach of Crippen.
+    
+    Parameters & args:
+        dictionary (dict): Dictionary with compound data to fill with xlogp information
+    Returns:
+        dictionary (dict): The same input dictionary, now incl xlogp information
+    """
+    
     for compound in dictionary.keys():
         if dictionary[compound]['smiles'] and str(dictionary[compound]['smiles']) != 'nan':
             current_smiles = dictionary[compound]['smiles']
@@ -78,21 +106,37 @@ def calculate_xlogp(dictionary):
             dictionary[compound]['xlogp'] = 0 # Maybe inappropriate. But NAs = annoying.
     return dictionary
 
-# Functions related to making mixes.
+# functions related to making mixes.
 def is_unique_mass(group, new_compound, mass_tol=0.01):
+    """
+    Helper to check whether a compound mass in a mixture is considered unique
+    given a specified mass proximity tolerance (Da).
+    """
+    
     if len(group) == 0:
         return True
-    # What's an appropriate minimum difference to call something unique.
+    # what's an appropriate minimum difference to call something unique.
     return not np.any(np.abs(group[:, 0] - new_compound[0]) < mass_tol)
 
 def min_xlogp_difference(group):
+    """
+    Helper to find the smallest difference in xlogp within a mixture.
+    """
+    
     if len(group) < 2:
         return float('inf')
     sorted_xlogp = np.sort(group[:, 1])
     return np.min(np.diff(sorted_xlogp))
 
 def prepare_data(dictionary):
-    # Let's focus on expected pos mz's for now...
+    """
+    Helper that prepares datasets for the mixture distribution function.
+    Filters out compounds that have m/z and xlogp data, and normalizes these.
+    Both the filtered and normalized data are returned to keep track of assignments.
+    
+    """
+    
+    # let's focus on expected pos mz's for now...
     data = pd.DataFrame.from_dict(dictionary, orient='index')[['expected_mz_pos', 'xlogp']]
     filtered = data.dropna(subset=['expected_mz_pos', 'xlogp'])
     scaler = StandardScaler()
@@ -107,11 +151,32 @@ def sheet_to_dict_prepThree(working_sheet):
     dictionary = working_sheet.to_dict(orient='index')    
     return dictionary
 
-# need to break up assignment schemes into helpers
+# need to break up assignment scheme into helpers
 def assign_with_mass_diff(
         labels, data, n_groups, xlogp_order, min_diff, min_compounds, 
         max_compounds, n_larger_groups, enforce, index
 ):
+    """
+    Performs the default mixture assignment of compounds by to m/z.
+    
+    Parameters & args:
+        labels (np.array): Contains mixture assignments for each compound (initialized as -1 for all compounds)
+        data (dataframe): Contains m/z and xlogp values for each compound
+        n_groups (int): Specified number of mixtures
+        xlogp_order (series): xlogp column from 'data', ordered (ascending)
+        min_diff (float): Specified minimum accepted within-mixture m/z difference
+        min_compounds (int): Minimum n compounds per mixture given n_groups and total n compounds
+        max_compounds (int): Maximum n compounds per mixture given n_groups and total n compounds
+        n_larger_groups (int): The n of groups with +1 compound, if n compounds does not evenly split among grps
+        enforce (bool): Controls whether assignment is allowed to finish when m/z assignment fails
+                        i.e., if True, failure to assign by m/z given parameters will halt execution
+                        Fed forward from the main assignment function, see below
+        index (list): Compound index
+        
+    Returns:
+        labels (np.array): Contains mixture assignments for each compound
+        
+    """
     n_samples = len(data)
     for i in range(n_samples):
         best_group = -1
@@ -155,7 +220,22 @@ def assign_with_mass_diff(
 def auto_assign_unplaced(
         labels, data, n_groups, xlogp_order, index
 ):
+    """
+    Performs assignment of compounds to mixtures by xlogp.
+    
+    Parameters & args:
+        labels (np.array): Contains mixture assignments for each compound 
+        data (dataframe): Contains m/z and xlogp values for each compound
+        n_groups (int): Specified number of mixtures
+        xlogp_order (series): xlogp column from 'data', ordered (ascending)
+        index (list): Compound index
+        
+    Returns:
+        labels (np.array): Contains mixture assignments for each compound
+        
+    """
     unassigned = list(np.where(labels == -1)[0])
+    
     while len(unassigned) > 0:
         assigned_this_round = set()
         groups_assigned_this_round = set()
@@ -182,12 +262,32 @@ def auto_assign_unplaced(
             if len(groups_assigned_this_round) == n_groups:
                 break
         unassigned = [idx for idx in unassigned if idx not in assigned_this_round]
+        
     return labels
 
 def distribute_compounds(
         dictionary, working_sheet, data, n_groups, 
         min_diff=0.01, enforce=False, auto_assign=False, index=None
 ):
+    """
+    Organizes mixture distribution for the mix module.
+    
+    Parameters & args:
+        dictionary (dict): Dictionary with all compound information
+        working_sheet (dataframe): DataFrame with compound m/z and xlogp
+        data (dataframe): DataFrame with normalized m/z and xlogp data
+        n_groups (int): Specified number of mixtures
+        min_diff (float): Specified minimum accepted within-mixture m/z difference
+        enforce (bool): Controls whether assignment is allowed to finish when m/z assignment fails
+                        i.e., if True, failure to assign by m/z given parameters will halt execution
+        auto_assign (bool): Controls whether failed m/z assignments should automatically be assigned by xlogp
+        index (list): Compound index
+        
+    Returns:
+        dictionary (dict): Input dictionary updated w mixture assignments
+        working_sheet (dataframe): DataFrame with m/z, xlogp, assignments for stats calculation (see below)
+    """
+    
     # now broken up assignment procedures into helpers
     n_samples = len(data)
     labels = np.full(n_samples, -1)
@@ -212,6 +312,18 @@ def distribute_compounds(
     return dictionary, working_sheet
 
 def mixture_stats(working_sheet, save_path = 'output/', streamlit=False):
+    """
+    Function to generate basic statistics that describe the mixture assignment results.
+        
+    Parameters & args:
+        working_sheet (dataframe): DataFrame with m/z, xlogp, assignments
+        save_path (string): String that directs all CLI-created files to output folder
+        
+    Returns:
+        For CLI: Nothing --- saves a spreadsheet to disk
+        For web-app: returns mixture_stats (dataframe), contains calculated statistics
+    """
+    
     n_groups = working_sheet['assignedMixture'].max()
     mixture_stats = pd.DataFrame()
     for group in range(1, n_groups + 1):
@@ -238,6 +350,19 @@ def mixture_stats(working_sheet, save_path = 'output/', streamlit=False):
         return mixture_stats
     
 def visual_summary(dictionary, group_key='assignedMixture', mz_key='monoisotopicMass', xlogp_key='xlogp'):
+    """
+    Generates visual summaries of the mixture assignment results.
+        
+    Parameters & args:
+        dictionary (dict): Dictionary with all compound information
+        group_key (string): Name of variable that contains mixture assignments
+        mz_key (string): Name of variable that contains monoisotopic mass data
+        xlogp_key (string): Name of variable that contains xlogp data
+        
+    Returns:
+        ...
+    """
+    
     # collect data
     groups = []
     masses = []

@@ -7,7 +7,6 @@ Created on Tue Jun 17 10:54:21 2025
 
 # app utilities 
 # we need to adapt our functions for working with io bytes and so on
-# lets try it...
 
 import pandas as pd
 import glob
@@ -34,6 +33,10 @@ import math
 
 # --- PCQ SHEET TEMPLATE ---
 def generate_pcq_template():
+    """
+    Generates a .csv pcq module template, downloadable via the web-app.
+    """
+    
     output = io.StringIO()
     writer = csv.writer(output, delimiter=',', lineterminator='\n')
     writer.writerow(['library_id', 'name_q', 'cas_q', 'smiles_q', 'cid_q'])
@@ -43,6 +46,10 @@ def generate_pcq_template():
 QUERY_FIELDS = ['library_id', 'name_q', 'cas_q', 'smiles_q', 'cid_q']
 
 def query_dict_from_pcq_input(pcq_input):
+    """
+    Generates a dictionary from input to the pcq module, used during the query process.
+    """
+    
     query_dict = {}
     for idx, data in pcq_input.items():
         # only include entries not successfully queried yet
@@ -157,6 +164,10 @@ METADATA_TEMPLATE_FIELDS = {
     }
 
 def generate_metadata_template():
+    """
+    Generates a metadata template for pre-assembly, downloadable via the web-app.
+    """
+    
     output = io.StringIO()
     writer = csv.writer(output, delimiter='\t', lineterminator='\n')
     for field, value in METADATA_TEMPLATE_FIELDS.items():
@@ -178,7 +189,10 @@ MAT_FIELDS = {
 }
 
 def get_charge(adduct):
-    # defines groups to match in a string 
+    """
+    Helper, gets the charge value of an adduct for calculations.
+    """
+
     pattern = re.search(r'(\d*)([+-])$', adduct)
     if pattern:
         sign = 1 if pattern.group(2) == '+' else -1
@@ -187,6 +201,12 @@ def get_charge(adduct):
     return 0 # if no charge 
 
 def read_archive(mat_archive, archive_type):
+    """
+    Reads .mat files from .zip archive, and returns a dictionary with the 
+    file contents indexed by file names.
+    Used in pre-assembly.
+    """
+    
     mat_files_dict = {}
     if archive_type == 'zip':
         with zipfile.ZipFile(mat_archive) as z:
@@ -207,6 +227,12 @@ def read_archive(mat_archive, archive_type):
     return mat_files_dict
 
 def read_archive_RTI(rti_archive, archive_type):
+    """
+    Reads RTI web app .csv files from .zip archive, and returns a dictionary 
+    with the file contents indexed by file names.
+    Used in pre-assembly.
+    """
+    
     rti_files_dict = {}
     if archive_type == 'zip':
         with zipfile.ZipFile(rti_archive) as z:
@@ -219,6 +245,11 @@ def read_archive_RTI(rti_archive, archive_type):
     return rti_files_dict
 
 def gather_RTIData_app(rti_files_dict):
+    """
+    Reads RTI data assembled in a dictionary by the read_archive_RTI fn.
+    Returns a dictionary with RTI data indexed by compound names.
+    """
+    
     rti_dictionary = {}
     for i, (name, file) in enumerate(rti_files_dict.items()):
         if not hasattr(file, 'name'):
@@ -228,6 +259,13 @@ def gather_RTIData_app(rti_files_dict):
     return rti_dictionary
 
 def add_cfData_app(dictionary, cf_data):
+    """
+    Adds chemont data from the Fiehn lab ClassyFire Batch portal. 
+    https://cfb.fiehnlab.ucdavis.edu/
+    
+    Functionally redundant since MassBank update to automatically add chemont data to new entries.
+    """
+    
     for compound, data in dictionary.items():
         current_inchikey = data.get('inchikey')
         if current_inchikey and current_inchikey in cf_data.keys():
@@ -255,6 +293,21 @@ def parse_matFile_app(
     custom_mat_fields={},
     normalize_ms2=True
 ):
+    """
+    Function for reading single .mat files and storing the data in a dictionary.
+    Adapted from the compilerUtilities fn to the Streamlit web-app context.
+
+    Parameters & args:
+        file (binary file-like): Single .mat file
+        dictionary (dict): Dictionary to add compound information
+        mode (string): Current mode --- pos/neg are compiled separately
+        custom_mat_fields (dict): Dictionary w non-standard .mat fields to extract data from
+        nonormalize_ms2 (bool): Controls whether ms2 data is normalized (separate column created)
+        
+    Returns:
+        dictionary (dict): Dictionary w added compound information
+    """
+    
     current_compound = None
     current_record = {}
     reading_peaks = False
@@ -329,6 +382,10 @@ def parse_matFile_app(
     return dictionary
 
 def gather_matData_app(mat_files_dict, mode, custom_mat_fields={}):
+    """
+    Helper, uses parse_matFile_app fn to gather data from all provided .mat files.
+    """
+    
     mat_dictionary = {}
     print(custom_mat_fields)
     for name, file_obj in mat_files_dict.items():
@@ -338,6 +395,18 @@ def gather_matData_app(mat_files_dict, mode, custom_mat_fields={}):
     return mat_dictionary
 
 def add_manual_metadata_app(dictionary, metadata_file):
+    """
+    Function to add manually provided experimental metadata to the compilation dictionary.
+    This data is provided by the user in a separate .tsv file.
+    
+    Parameters & args:
+        dictionary (dict): Pre-assembly dictionary to which data is added
+        metadata_file (file): .tsv file with manual metadata
+        
+    Returns:
+        dictionary (dict): Updated pre-assembly dictionary
+    """
+    
     manual_dictionary = {}
     metadata_file.seek(0)  # ensure "pointer" at start
     # need to wrap the file like we did for mat files
@@ -354,6 +423,19 @@ CL_ISOTOPE_DIFF = 1.99705 # not implemented yet
 # maybe do for Cl later --- polychlorinated might need it?
 
 def adduct_assigner(compound, data):
+    """
+    Function to assign ion / adduct types to feature data that lack annotation.
+    Evaluates whether experimental precursor m/z is within at least 10 ppm 
+    of any of candidate adducts below. 
+
+    Parameters & args:
+        compound (string): Library ID for a compound in the pre-assembly dictionary
+        data (dictionary): Compound variable data from the pre-assembly dictionary
+
+    Returns:
+        best_adduct (string): Assigned ion type/adduct
+    """
+    
     # if mat files lack adduct annotation...
     e_mass = 0.00054858
     h_mass = 1.00783
@@ -411,9 +493,22 @@ def adduct_assigner(compound, data):
     return best_adduct if best_adduct else None
 
 def adduct_checker(compound, data):
-    # for Br-containing (Cl also sometimes? No?) compounds -- 
-    # might need to calculate two monomasses, one for M and one for M+2
-    # ...
+    """
+    Function to validate given ion type/adduct data.
+    Evaluates whether experimental precursor m/z is within expected bounds
+    given the ion type and the theoretical monoisotopic mass.
+    Results of the validation are provided in the pre-assembly module output sheet.
+
+    Parameters & args:
+        compound (string): Library ID for a compound in the pre-assembly dictionary
+        data (dictionary): Compound variable data from the pre-assembly dictionary
+
+    Returns:
+        adduct (string): Ion type/adduct
+    """
+    
+    # in particular Br-containing compounds might need to calculate 
+    # two monomasses, one for M and one for M+2 etc
     e_mass = 0.00054858
     h_mass = 1.00783
     adducts = {
@@ -488,6 +583,24 @@ def preCompile_app(
     annotate_fragments=(True, False),
     progress_callback=None
 ):
+    """
+    Organizes pre-assembly for the web-app.
+
+    Parameters & args:
+        mode (string): Current mode, pos/neg
+        pcq_data (dict): Dictionary containing compound chemical metadata
+        metadata_tsv (dict): Dictionary containing experimental metadata
+        mat_data (dict): Dictionary containing compound feature data
+        storage_fields (list): List of variables to store for each compound
+        rti_data (dict): Dictionary containing RTI data
+        cf_data (dict): Dictionary containing chemont data from ClassyFire
+        annotate_fragments (bool): Controls whether fragment formula annotation is performed
+        progress_callback: Used for web-app progress bar visuals
+
+    Returns:
+        dictionary (dict): Pre-assembly dictionary
+    """
+    
     if mat_data:
         # we do call for create compilation dictionary here
         # now need to bring the full, possibly custom storage fields in explicitly
@@ -560,12 +673,27 @@ def filter_preComp_app(
     dictionary, 
     mode
 ):
-    '''
-    Optional function to filter the preComp-sheet when assembling.
-    Besides using a .txt file to skip compounds by name as listed
-    in the .txt file, it also makes comments of enantiomer features
-    for one of the features, while discarding the other.
-    '''
+    """
+    Optional fn to filter the pre-assembly sheet.
+    
+    Compared to the CLI verison, only deals with experimental features with
+    identical names. Compounds that there is more than one experimental feature for
+    and that have the sane name (i.e. two .mat files both with the name Caffeine)
+    have previously had the latter feature given the name "Caffeine feature n."
+    In this step, these features are merged into one, and information about
+    the latter feature appended to the first as a comment.
+    
+    Deprecated...? Filtering behavior can be avoided by having unique
+    names for all feature data.
+
+    Parameters & args:
+        dictionary (dict): Pre-assembly dictionary
+        mode (string): Current mode, pos/neg
+
+    Returns:
+        filtered_dict (dict): Pre-assembly dictionary, filtered
+    """
+    
     filtered_dict = {}
             
     # add info about (presumed) enantiomer peaks in comments of one of the entries
@@ -595,6 +723,21 @@ def compileLib_app(
     acc_short,
     mode
 ):
+    """
+    Organizes assembly.
+    Adds final necessary variables for each compound to the pre-assembly dictionary and returns it.
+
+    Parameters & args:
+        dictionary (dict): Pre-assembly dictionary
+        acc_start (int): Accession numbering, starting value
+        acc_full (string): Full MassBank-format accession prefix
+        acc_short (string): Short MassBank-format accession prefix
+        mode (string): Current mode, pos/neg
+        
+    Returns:
+        dictionary (dict): Assembly dictionary
+    """
+    
     # fill in the the final data fields using provided acc info
     for i, (compound, data) in enumerate(dictionary.items()):
         acc_n = f'{acc_start + i:06d}'
@@ -654,7 +797,7 @@ def compileLib_app(
                     'count': annotation.get('count'),
                     'ppm': annotation.get('ppm')
                 })
-            else: # if there is no annotations at all, we have to do this
+            else: # if there are no annotations at all, we have to do this
                 ms2_display.append({
                     'exp_mz': mz,
                     'abs_int': abs_int,
@@ -667,6 +810,10 @@ def compileLib_app(
     return dictionary
 
 def write_compSheet(dictionary):
+    """
+    Writes a summary sheet for the compiled library.
+    """
+    
     output = io.StringIO()
     df = pd.DataFrame.from_dict(dictionary, orient='index')
     df = df.rename(columns=MASTERSHEET_COLUMNS)
@@ -678,6 +825,11 @@ def write_compSheet(dictionary):
 # lets actually fix it when writing txt files, we want it to be intact
 # when doing stuff prior, like formula annotation
 def reformat_charged_formula(formula):
+    """
+    Helper, converts molecular formula strings to MassBank-formatted ones.
+    (Same fn as under compilerUtilities...)
+    """
+    
     match = re.match(r'^([A-Za-z0-9]+)([+-])(\d*)$', formula)
     if match:
         formula_base, sign, number = match.groups()
@@ -688,9 +840,10 @@ def reformat_charged_formula(formula):
 
 def write_txtFile_app(compound, data, field_mapping, field_order=None):
     """
-    Adapted helper from compilerUtilities...
-    Returns full .txt file layout as a string.
+    Web app-adapted helper from compilerUtilities.
+    Returns the full MassBank-format .txt file for one compound as a string.
     """
+    
     data['library_id'] = compound # do we still need this? keep 4 now...
     output = io.StringIO()
     fields = field_order if field_order else field_mapping.keys()
@@ -717,6 +870,10 @@ def write_txtFile_app(compound, data, field_mapping, field_order=None):
 
 # adapted...
 def write_mspFile_app(comp_dict, mode):
+    """
+    Helper, writes and returns the .msp library file as a string.
+    """
+    
     msp_output = io.StringIO()
     for compound, fields in comp_dict.items():
         msp_output.write(f'NAME: {compound}\n')
@@ -736,6 +893,10 @@ def write_mspFile_app(comp_dict, mode):
 
 # create everything inside the zip file is a good solution
 def create_compZip(comp_data, mode, field_mapping):
+    """
+    Organizes the library assembly files for download in a .zip archive.
+    """
+    
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, 'w') as zipf:
         # add .txt files
@@ -756,7 +917,11 @@ def create_compZip(comp_data, mode, field_mapping):
     return zip_buffer
 
 def formula_to_subscript(formula):
-    # unicode subscripts, never knew that was a thing
+    """
+    Helper for visuals following assembly.
+    """
+    
+    # unicode subscripts, apparently that is a thing
     subscript_map = {
         '0': '₀', '1': '₁', '2': '₂', '3': '₃', '4': '₄',
         '5': '₅', '6': '₆', '7': '₇', '8': '₈', '9': '₉'
@@ -767,6 +932,10 @@ def formula_to_subscript(formula):
     return ''.join(result)
 
 def plot_MS2(data, ms2_display, precursor_mz, title='placeholder'):
+    """
+    Function used to plot spectra in the web-app.
+    """
+    
     mzs = [peak['exp_mz'] for peak in ms2_display]
     intensities = [peak['norm_int'] for peak in ms2_display]
     formulas = [peak.get('formula') for peak in ms2_display]
@@ -815,6 +984,17 @@ def plot_MS2(data, ms2_display, precursor_mz, title='placeholder'):
 
 # ---- RTI ---
 def generate_rtiSheets_app(compound_dict):
+    """
+    Function to generate spreadsheets in the input format of the RTI web app.
+    Adapted from the CLI version, see compilerUtilities.py.
+    
+    Parameters & args:
+        compound_dict (dict): Pre-assembly dictionary with necessary compound data
+        
+    Returns:
+        sheet_dict (dict): Dictionary with RTI web app input sheets 
+    """
+    
     # store sheets here
     sheet_dict = {}
     
@@ -868,6 +1048,17 @@ MGF_MAT_FIELDS = { # field correspondence; 'MGF field': 'MAT field'
 }
 
 def parse_mgf_app(mgf_input, custom_mgf_fields={}):
+    """
+    Function to convert .mgf files to Librarian-adapted .mat files.
+    
+    Parameters & args:
+        mgf_input (string): Contents of .mgf file in string format
+        custom_mgf_fields (dict): Dictionary with non-standard tags to extract
+        
+    Returns:
+        feature_dict (dict): Dictionary with compound data
+    """
+    
     # basic stuff, we read the mgf and turn it into a dictionary
     # then we flip the dictionary into a set of mat files
     feature_dict = {}
@@ -926,10 +1117,20 @@ def parse_mgf_app(mgf_input, custom_mgf_fields={}):
                     reading_peaks = True
                 
     return feature_dict
-            
-
 
 def dict2mat_zip(feature_dict, custom_mgf_fields={}):
+    """
+    Function to create .mat files from dictionary containing .mgf file data.
+    Created files are placed into a .zip archive that is downloaded via the web app.
+    
+    Parameters & args:
+        feature_dict (dict): Dictionary with compound data
+        custom_mgf_fields (dict): Dictionary with non-standard tags to write
+        
+    Returns:
+        zip_buffer (file-like): Buffer
+    """
+    
     # create .mat files
     if not feature_dict:
         return

@@ -381,7 +381,7 @@ def render_mix():
                     stats_df = mu.mixture_stats(working_sheet, streamlit=True)
                     st.session_state['stats_df'] = stats_df
                     
-                    # do vis 
+                    # do viz 
                     buf = io.BytesIO()
                     mu.visual_summary(dictionary)
                     plt.savefig(buf, format='png')

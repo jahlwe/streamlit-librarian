@@ -24,10 +24,18 @@ DDA_COLUMNS = [
 def natively_charged_adduct(
     mol_formula, monoisotopic_mass
 ):
+    """
+    Helper, returns expected m/z for compounds based on (native) charge state.
+    """
+    
     z = 1 if mol_formula.endswith('+') else int(mol_formula[-1])
     return (monoisotopic_mass), z if z == 1 else (monoisotopic_mass / z, z)
 
 def group_by_mixture(dictionary):
+    """
+    Helper, groups compounds by mixture assignments for creating DDA lists.
+    """
+    
     mixtures = {}
     for name, data in dictionary.items():
         try:
@@ -41,12 +49,28 @@ def write_rows(
     writer, compound_name, formula, adducts, data, 
     adducts_formatted, z_values, rt, rt_window
 ):
+    """
+    Helper, writes a complete row for one compound-adduct combination.
+    """
+    
     for adduct, formatted, z in zip(adducts, adducts_formatted, z_values):
         mass = data.get(adduct, '') if adduct else data['monoisotopicMass']
         row = [compound_name, formula if formatted else '', formatted, mass, z, rt, rt_window]
         writer.writerow(row)
 
 def create_targetDDA_app(dictionary, settings, mode):
+    """
+    Organizes creation of Thermo XCalibur-format targeted DDA inclusion lists.
+    
+    Parameters & args:
+        dictionary (dict): Mix module output sheet
+        settings (tuple): User settings, fed forward from the web app
+        mode (string): Current mode, pos/neg
+        
+    Returns:
+        zip_buffer (file-like): Zipfile buffer with DDA lists, downloadable via web app
+    """
+    
     mixtures = group_by_mixture(dictionary)
     max_mz, double_charge_limit, rt_baseline, rt_window = settings
     

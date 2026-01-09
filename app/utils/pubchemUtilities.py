@@ -25,42 +25,17 @@ ENDPOINT_TEMPLATE = f"{BASE_URL}/compound/{{compound_cid}}/JSON"
 CAS_BASE_URL = "https://pubchem.ncbi.nlm.nih.gov/rest/pug"
 CAS_ENDPOINT_TEMPLATE = f"{CAS_BASE_URL}/compound/name/{{cas_number}}/cids/JSON"
 
-def is_empty(val):
-    '''
-    Need this for checking 'nan' and None-values, 
-    for reQuery in particular.
-    '''
-    if val is None:
-        return True
-    if isinstance(val, float) and math.isnan(val):
-        return True
-    if isinstance(val, str) and val.strip() == '':
-        return True
-    return False
-
-def deep_get(d, keys, default=None):
-    '''
-    Helper for diving into HTTP GET .json responses
-    Enter names of lists, dicts, etc to navigate to 
-    where you want to go in the .json as 'keys'
-    '''
-    for key in keys:
-        if callable(key): 
-            d = key(d)
-        elif isinstance(d, list):
-            d = d[key] if len(d) > key else default
-        elif isinstance(d, dict):
-            d = d.get(key, default)
-        else:
-            return default
-        if d is None:
-            return default
-    return d
-
 def special_pcp_findParent(query_input, compound_cid):
-    '''
-    Finds parent structures in PubChem entries.
-    '''
+    """
+    Finds parent structures in PubChem entries. Performs an API request.
+    
+    Parameters & args:
+        query_input (string): Name of queried structure. Printed to console when finding parent fails
+        compound_cid (int): The salt CID, used to retrieve full PubChem entry
+    Returns:
+        parent_cid (int): CID of the parent structure
+    """
+    
     endpoint = ENDPOINT_TEMPLATE.format(compound_cid=compound_cid)
     response = requests.get(endpoint)
     data = response.json()
@@ -72,7 +47,7 @@ def special_pcp_findParent(query_input, compound_cid):
     else:
         try: # now using a helper function.
             parent_cid = int(
-                deep_get(
+                gu.deep_get(
                     data,
                     [
                         'Record', 'Section',
@@ -89,9 +64,15 @@ def special_pcp_findParent(query_input, compound_cid):
     return parent_cid
 
 def special_pcp_metadata(compound_cid):
-    '''
-    Get CAS & Comptox --- not available by calling Compound object.
-    '''
+    """
+    Retrieves CAS & Comptox DTSXID data from full PubChem entries. Performs an API request.
+    
+    Parameters & args:
+        compound_cid (int): Compound CID, used to retrieve full PubChem entry
+    Returns:
+        special_request_dict (dict): Dictionary with CID, Comptox DTSXID data
+    """
+    
     endpoint = ENDPOINT_TEMPLATE.format(compound_cid=compound_cid)
     response = requests.get(endpoint)
     data = response.json()
@@ -104,13 +85,13 @@ def special_pcp_metadata(compound_cid):
         # get name here, while we're already doing a PUG request
         special_request_dict['name'] = data['Record']['RecordTitle']
         
-        cas_number = deep_get(data, [
+        cas_number = gu.deep_get(data, [
             'Record',
             'Reference',
             lambda l: next((i for i in l if i.get('SourceName') == 'CAS Common Chemistry'), {}), 
             'SourceID'])
         
-        comptox_url = deep_get(data, [
+        comptox_url = gu.deep_get(data, [
             'Record',
             'Reference',
             lambda l: next((i for i in l if i.get('SourceName') == 'EPA DSSTox'), {}), 
@@ -121,11 +102,20 @@ def special_pcp_metadata(compound_cid):
     return special_request_dict
 
 def casQuery_getCID(cas_input):
-    '''
-    Custom solution for querying CAS numbers.
-    What we do is that we find the most relevant CID for a given
-    CAS number, we return it and simply do a "normal" CID-based query.
-    '''
+    """
+    Function for querying PubChem using CAS numbers. Performs an API request.
+    
+    From a CAS number supplied by the user, the function finds the most relevant
+    PubChem CID. This CID is returned and then used to do a standard query.
+    This means that performing a CAS-based query for a compound will need
+    one more API request to be completed, all things being equal.
+    
+    Parameters & args:
+        cas_input (string): CAS number, given e.g. in web-app data frame
+    Returns:
+        special_request_dict (dict): Dictionary with CID, Comptox DTSXID data
+    """
+    
     endpoint = CAS_ENDPOINT_TEMPLATE.format(cas_number=cas_input)
     response = requests.get(endpoint)
     data = response.json()
@@ -134,14 +124,14 @@ def casQuery_getCID(cas_input):
         print(f'no corresponding CID found for CAS input {cas_input}')
         return None
     else:
-        cid_from_cas = deep_get(data, ['IdentifierList', 'CID'])[0]
+        cid_from_cas = gu.deep_get(data, ['IdentifierList', 'CID'])[0]
     return cid_from_cas 
 
 def nameCleaner_special(compound_name):
-    '''
-    hardcore version for GC compounds.
-    needs re-testing.
-    '''
+    """
+    Not in use...
+    """
+    
     no_prefix = str(compound_name)
     no_gc_suffix = re.sub(
         r';\s*(EI-B|MS|EI|CI|ESI|APCI|MALDI|FAB|FD|GC|LC|LC-MS|GC-MS|GC/EI|GC/CI|GC/MS|LC/MS|GC-TOF|LC-TOF|TOF|QTOF|HRMS|NMR|UV|IR)[^;]*',
@@ -154,9 +144,11 @@ def nameCleaner_special(compound_name):
     return cleaned.strip()
 
 def nameCleaner(compound_name):
-    '''
-    basic version for PW-FDA.
-    '''
+    """
+    Removes prefixes (e.g., certain stereochemistry specifications) from names to avoid query failures.
+    May need to be removed or made optional. Currently used in pcQueries fn, below.
+    """
+    
     return re.sub(r'^(?:\([^)]+\)-?){1,2}', '', compound_name)
 
 def safe_getattr(obj, attr, default=None, cast=None):
@@ -191,6 +183,18 @@ FIELDS = [ # things we get from the Compound objects.
 ]
 
 def pcQuery_expanded(query_input, query_type, pc_data=None):
+    """
+    Helper for pcQueries function.
+    Performs the actual querying of PubChem data via PubChemPy.
+    Special metadata retrieval (CAS, DTSXID) happens in pcQueries proper.
+    
+    Parameters & args:
+        query_input (string): Input used to query data for a single compound
+        query_type (string): Holds information on what kind of query (name, CID etc) is being done
+    Returns:
+        pc_data (Compound object): PubChemPy Compound object with compound data
+    """
+    
     if not query_type in ('name', 'smiles', 'cid'):
         print(f'invalid query --- input: [{query_input}] type: [{query_type}]')
         return None
@@ -222,6 +226,17 @@ def pcQuery_expanded(query_input, query_type, pc_data=None):
         return None
 
 def pcQueries(query_dict, query_empty_only=True, progress_callback=None):
+    """
+    Organizes PubChem queries for the pcq module.
+    
+    Parameters & args:
+        query_dict (dict): Dictionary created from input (e.g., sheet) to the pcq module
+        query_empty_only (bool): Controls whether to perform queries for compounds with prior data
+        progress_callback: Used for web-app progress bar visuals
+    Returns:
+        pcq_out (dict): Dictionary with column-indexed (e.g., library ID) data.
+    """
+    
     n_compounds = len(query_dict.keys())
     pcq_out = {} # create a dictionary to store data in an organized format
     print(f'running pcq for {n_compounds} compounds')
@@ -239,7 +254,7 @@ def pcQueries(query_dict, query_empty_only=True, progress_callback=None):
             query_input = nameCleaner(name_q) if str(name_q) != 'nan' else name_q
         
         # hmm... think about this one.
-        if not is_empty(data.get('queried_at')) and query_empty_only:
+        if not gu.is_empty(data.get('queried_at')) and query_empty_only:
             continue
         
         # little sidestep to deal with cas inputs. we get the CID, and change the query type.

@@ -48,6 +48,8 @@ MASSES = { # maybe we can get masses from a package instead.
 }
 
 # adduct atoms --- use to update atom_counts
+# maybe do something more sophisticated later where we just read the
+# ion type/adduct string and take it from there
 ADDUCTS = {
     # pos
     '[M]+': {},
@@ -70,12 +72,21 @@ atom_names = sorted(MASSES.keys(), key=lambda x: -len(x))
 atom_pattern = r'(' + '|'.join(atom_names) + r')(\d*)'
 
 def parse_formula(formula):
+    """
+    Helper, reads a molecular formula and returns a dictionary with atom counts.
+    Atoms are stored as keys, counts as values.
+    """
+    
     atom_counts = {}
     for (atom, count) in re.findall(atom_pattern, formula, re.IGNORECASE):
         atom_counts[atom] = atom_counts.get(atom, 0) + int(count or 1)
     return atom_counts
 
 def regenerate_formula_hill(atom_counts):
+    """
+    Recreates a molecular formula string from an atom count dictionary.
+    """
+    
     elements = list(atom_counts.keys())
     formula = ''
     if 'C' in atom_counts and atom_counts['C'] > 0:
@@ -99,11 +110,19 @@ def regenerate_formula_hill(atom_counts):
     return formula
 
 def apply_adduct(atom_counts, adduct):
+    """
+    Helper, adds adduct atoms to an atom count dictionary.
+    """
+    
     for atom, increment in ADDUCTS[adduct].items():
         atom_counts[atom] = atom_counts.get(atom, 0) + increment
     return atom_counts
 
 def get_charge(adduct):
+    """
+    Helper, returns an integer charge value based on adduct / ion type.
+    """
+    
     # defines groups to match in a string 
     pattern = re.search(r'(\d*)([+-])$', adduct)
     if pattern:
@@ -115,6 +134,10 @@ def get_charge(adduct):
 # for annotation.
 # if we ever take this on tour, remember MB wants [formula]2+
 def get_charge_annotation(adduct):
+    """
+    Helper, returns string with charge information for annotation.
+    """
+    
     # supply the adduct again and do this
     if adduct:
         match = re.search(r'(\d*)([+-])$', adduct)
@@ -127,15 +150,33 @@ def get_charge_annotation(adduct):
         return ''
 
 def get_mz_noCharge(atom_counts):
+    """
+    Helper, sums and returns the total mass of atoms in an atom count dictionary.
+    """
+    
     mz = (sum(n * MASSES[a] for a, n in atom_counts.items()))
     return mz
 
 def get_molecular_ion_mz(atom_counts, adduct):
+    """
+    Helper, calculates theoretical m/z of an ion given an atom count dictionary and adduct / ion type.
+    """
+    
     charge = get_charge(adduct)
     mol_ion_mz = (sum(n * MASSES[a] for a, n in atom_counts.items()) - (charge * E_MASS))/ abs(charge) # need abs for neg to work
     return mol_ion_mz
 
 def mass_IsoSpecPy(formula, adduct=None):
+    """
+    Generates an isotopic distribution from an input molecular formula.
+    
+    Parameters & args:
+        formula (string): A molecular formula
+        adduct (string): Adduct / ion type
+    Returns:
+        massDist (dict): Dictionary with isotopic distribution (peak m/z as keys, probabilities as values)
+    """
+    
     massDist = {}
     # use isospecpy to generate an isotopic distribution
     isoDist = iso.IsoTotalProb(formula=formula, prob_to_cover=0.999)
@@ -150,9 +191,17 @@ def mass_IsoSpecPy(formula, adduct=None):
     return massDist
 
 def calculate_ppm_dev(exp_mz, ref_mz):
+    """
+    Helper, calculates parts-per-million deviation given two m/z values.
+    """
+    
     return ((ref_mz-exp_mz) / ref_mz) * 1e6
 
 def normalize_atom(atom, masses_dict):
+    """
+    Helper, checks whether atom key in atom counts dictionary is valid.
+    """
+    
     # ma 2014 formulas being read as lower case for some unknown reason
     for key in masses_dict:
         if key.lower() == atom.lower():
@@ -340,20 +389,43 @@ MACCS_KEYS = { # MACCS keys, from source code. index = bit, content = SMARTS.
 }
 
 def clean_dummy_from_formula(formula):
+    """
+    Helper, removes dummy elements from formulas generated via fingerprinting etc.
+    """
+    
     # dummy artifacts are * or *(number)
     return re.sub(r'\*\d*', '', formula)
 
 def atom_count_from_mol(mol):
+    """
+    Helper, gets atom count dictionary for an RDKit mol object.
+    """
+    
     formula = Chem.rdMolDescriptors.CalcMolFormula(mol)
     return sum(parse_formula(formula).values())
 
 def smiles_to_mol_to_formula_to_count(smiles):
+    """
+    Helper, gets atom count starting from a SMILES extracted from an RDKit mol object.
+    """
+    
     # ...
     temp_mol = Chem.MolFromSmiles(smiles)
     atom_count = atom_count_from_mol(temp_mol)
     return atom_count
 
 def get_MacFrag(parent_mol):
+    """
+    Generates MacFrag fragments. Uses external code, see MacFrag.py.
+    Also, see Diao et al., 2023 (https://doi.org/10.1093/bioinformatics/btad012)
+    
+    Parameters & args:
+        parent_mol: RDKit mol object
+    
+    Returns:
+        (dict): Dictionary with MacFrag fragments described as SMILES as keys, atom count dictionaries as values
+    """
+    
     # this returns a list of SMILES.
     MacFrags = MacFrag(parent_mol)
     # no need for position cleaning, they do this themselves
@@ -363,6 +435,19 @@ def get_MacFrag(parent_mol):
         return {}
     
 def extract_fragments_from_bitinfo(mol, bitInfo):
+    """
+    Extracts Morgan/ECFP substructures from bitInfo.
+    Reconstructs fragments in atom environments and converts to SMILES,
+    which are returned as keys in a dictionary with atom counts as values.
+    
+    Parameters & args:
+        mol: RDKit mol object
+        bitInfo (dict): Dictionary with Morgan bitInfo
+        
+    Returns:
+        cleaned_dict (dict): Dictionary with unique fragments described as SMILES
+    """
+    
     fp_dict = {}
     for bit, atom_radius_list in bitInfo.items():
         for atom_idx, radius in atom_radius_list:
@@ -381,6 +466,19 @@ def extract_fragments_from_bitinfo(mol, bitInfo):
     return cleaned_dict
 
 def extract_fragments_from_bitpaths(mol, bitPaths):
+    """
+    Extracts path-based fingerprint substructures from bitPaths.
+    Reconstructs fragments directly from bond index paths and converts to smiles,
+    which are returned as keys in a dictionary with atom counts as values.
+    
+    Parameters & args:
+        mol: RDKit Mol object
+        bitPaths: Path-based fingerprint dict {bitID: [bond_indices_list, ...]}
+    
+    Returns:
+        cleaned_dict (dict): Dictionary with unique fragments described as SMILES
+    """
+    
     fp_dict = {}
     for bit, paths in bitPaths.items():
         for bond_indices in paths:
@@ -393,6 +491,17 @@ def extract_fragments_from_bitpaths(mol, bitPaths):
     return cleaned_dict
 
 def get_rdkit_fingerprints(mol):
+    """
+    Generates RDKit Daylight-like path-based fingerprints.
+    Uses the extract_fragments_from_bitpaths fn to return fragments.
+    
+    Parameters & args:
+        mol: RDKit Mol object
+    
+    Returns:
+        dict: Dictionary with unique fragments described as SMILES
+    """
+    
     # better for linear structures, chains? 'daylight-like'
     fp_gen = rdFingerprintGenerator.GetRDKitFPGenerator(maxPath=5)
     ao = rdFingerprintGenerator.AdditionalOutput()
@@ -402,6 +511,19 @@ def get_rdkit_fingerprints(mol):
     return extract_fragments_from_bitpaths(mol, bitPaths)
 
 def get_morgan_fingerprints(mol, radius=2, nBits=2048):
+    """
+    Generates Morgan/ECFP circular fingerprints.
+    Uses the extract_fragments_from_bitinfo fn to return fragments.
+    
+    Parameters & args:
+        mol: RDKit Mol object
+        radius (int): Morgan radius
+        nBits (int): Fingerprint size
+    
+    Returns:
+        dict: Dictionary with unique fragments described as SMILES
+    """
+    
     fp_gen = rdFingerprintGenerator.GetMorganGenerator(radius=radius, fpSize=nBits)
     ao = rdFingerprintGenerator.AdditionalOutput()
     ao.AllocateBitInfoMap()
@@ -410,6 +532,18 @@ def get_morgan_fingerprints(mol, radius=2, nBits=2048):
     return extract_fragments_from_bitinfo(mol, bitInfo)
 
 def get_maccs_fingerprints(mol, maccs_dict):
+    """
+    Generates MACCS structural keys fingerprints.
+    Matches SMARTS substructures for each on-bit and extracts connected bond components.
+    
+    Parameters & args:
+        mol: RDKit Mol object
+        maccs_dict: (dict) Dictionary mapping MACCS bit IDs to (SMARTS, count) tuples
+    
+    Returns:
+        cleaned_dict (dict): Dictionary with unique fragments described as SMILES
+    """
+
     # now working like the others, except we need to supply
     # the maccs_dict reference (we could use it global-style, but whatever)
     fp_dict = {}
@@ -453,6 +587,11 @@ def get_maccs_fingerprints(mol, maccs_dict):
 
 # ---- READ THE NEUTRAL LOSS LIST ---
 def read_loss_ref():
+    """
+    Reads the curated list of neutral losses and fragments from Ma, 2014.
+    DOI: https://doi.org/10.1021/ac502818e
+    
+    """
     data = {}
     with open('utils/ma2014.csv', 'r') as f:
         reader = csv.reader(f, delimiter=',')
@@ -486,6 +625,11 @@ common_fragments = [
 ]
 
 def add_common_fragments(fragments, loss_ref):
+    """
+    Adds common fragments to the global NEUTRAL_LOSS_REF dictionary.
+    More fragments can be added to the list common_fragments later...
+    """
+    
     for formula in fragments:
         atom_counts = parse_formula(formula)
         mass = get_mz_noCharge(atom_counts)
@@ -498,6 +642,11 @@ def add_common_fragments(fragments, loss_ref):
 NEUTRAL_LOSS_REF = add_common_fragments(common_fragments, NEUTRAL_LOSS_REF)
 
 def identify_parent(theo_parent_mz, ms2_data, ppm_threshold=10):
+    """
+    Helper that identifies which peak in an MS2 spectrum (if any) 
+    corresponds to the parent ion.
+    """
+    
     best_match = (None, None)  # (index, ppm_dev)
     for idx, (mz, abs_int, rel_int) in enumerate(ms2_data):
         ppm_dev = calculate_ppm_dev(mz, theo_parent_mz)
@@ -507,6 +656,11 @@ def identify_parent(theo_parent_mz, ms2_data, ppm_threshold=10):
     return best_match
 
 def find_compatible_losses(atom_count, mode=None):
+    """
+    Helper that identifies losses from the dictionary of common fragments that 
+    are compatible with the atom constitution of a compound.    
+    """
+    
     # don't do the mode thing.
     loss_reference = copy.deepcopy(NEUTRAL_LOSS_REF)
     compatible_losses = {}
@@ -524,6 +678,20 @@ def find_compatible_losses(atom_count, mode=None):
 def generate_ref_fragments(
     data, fragment_and_loss=True
 ):
+    """
+    Collects candidate fragment formulas for a compound using the collection of 
+    a-priori known (currently, mostly Ma et al., 2014) reference losses and fragments.
+    
+    Both the individual candidate fragment formulas and the resulting 
+    parent-minus-fragment formulas are collected.
+    
+    Parameters & args:
+        data (dict): Compound data
+    
+    Returns:
+        fragment_dict (dict): Collected formulas 
+    """
+    
     # store all the precursor-loss types
     fragment_dict = {}
     
@@ -596,6 +764,21 @@ def generate_ref_fragments(
 def generate_more_fragments(
     data, fragment_dict, fragment_and_loss=True
 ):
+    """
+    Collects candidate fragment formulas for a compound using MacFrag and
+    RDKit fingerprinting approaches.
+    
+    Both the individual candidate fragment formulas and the resulting 
+    parent-minus-fragment formulas are collected.
+    
+    Parameters & args:
+        data (dict): Compound data
+        fragment_dict (dict): Prior set of collected formulas
+    
+    Returns:
+        fragment_dict (dict): Updated set of collected formulas 
+    """
+    
     # --- REQUIRED FIELDS ---
     parent_smiles = data.get('smiles')
     base_formula = data.get('molecularFormula')
@@ -731,6 +914,23 @@ def generate_more_fragments(
 def find_possible_fragment_formulas(
     data, target_mz, min_mass=50, ppm_threshold=5 # more stringent ppm
 ):
+    """
+    For MS2 fragments without any identified candidate formulas, this function
+    generates hypothetical fragments limited by the atom count of the compound.
+    The m/z of these hypothetical fragments are matched against the m/z of the 
+    unannotated fragment.
+    
+    Parameters & args:
+        data (dict): Compound data
+        target_mz (float): MS2 fragment m/z to match
+        min_mass (float): Minimum fragment mass
+        ppm_threshold (float): ppm deviation threshold for matching
+    
+    Returns:
+        best_match_formula (string), best_match_mz (float),
+        best_match_ppm (float), best_match_source (string)
+    """
+    
     # adapt our brute-forcer from before for this purpose?
     base_formula = data.get('molecularFormula')
     adduct = data.get('ion_type')
@@ -752,6 +952,8 @@ def find_possible_fragment_formulas(
     atoms = list(atom_counts.keys())
     max_counts = [atom_counts[atom] for atom in atoms]
     
+    # it would be more efficient if we could match all remaining masses to each 
+    # generated fragment as they are being created...?
     for counts in itertools.product(*(range(max_c + 1) for max_c in max_counts)):
         if sum(counts) == 0: # skip null fragment
             continue
@@ -770,6 +972,25 @@ def find_possible_fragment_formulas(
     return best_match_formula, best_match_mz, best_match_ppm, best_match_source
 
 def isotopic_envelope_scoring(match_formula, match_idx, adduct, ms2_data, ppm_threshold=10):
+    """
+    Identifies isotopic peaks in MS2 spectra following candidate fragment matching.
+    Generates theoretical isotopic envelopes from the candidate formula,
+    and identifies isotopic peaks (M+1, etc) present in the raw data.
+    Identification of isotopic peaks as such is done by cosine similarity scoring.
+    Identifying an experimental peak as part of an isotopic pattern takes
+    precedence over other annotation, and "claims" it as such.
+    
+    Parameters & args:
+        match_formula (string):  Matched candidate formula to generate isotopic dist for
+        match_idx (int): Index of peak in ms2_data to which the candidate formula is matched
+        adduct (string): Ion type / adduct
+        ms2_data (list): List of normalized MS2 data
+        ppm_threshold (float: ppm deviation threshold for matching peaks
+    
+    Returns:
+        cosine_sim (float), peaks_to_claim (tuple)
+    """
+    
     # ok. first we generate the iso envelope given our current peak match.
     cleaned_match_formula = re.sub(r'(\(\d+\))?[\+-][0-9A-Za-z]*$|(\(\d+\))$', '', match_formula)
     iso_envelope = mass_IsoSpecPy(cleaned_match_formula, adduct)
@@ -846,6 +1067,19 @@ def isotopic_envelope_scoring(match_formula, match_idx, adduct, ms2_data, ppm_th
 def match_loss_fragments(
     data, loss_dict, ppm_threshold=10, swiss_army_knife=True
 ):
+    """
+    Coordinates fragment matching and annotation through use of functions above.
+    
+    Parameters & args:
+        data (dict): Compound data
+        loss_dict (dict): Dictionary with candidate fragment formulas
+        ppm_threshold (float): ppm deviation threshold for matching
+        swiss_army_knife (bool): Controls whether to execute find_possible_fragment_formulas
+    
+    Returns:
+        List of matches.
+    """
+
     base_formula = data.get('molecularFormula')
     if not base_formula:
         return []
@@ -907,6 +1141,10 @@ def match_loss_fragments(
     return sorted(matched, key=lambda x: x[6])
 
 def format_annotation(data, match_list):
+    """
+    Reformats fragment annotation data for visualization in the web app.
+    """
+    
     formatted = []
     for (mz, formula, match_mz, match_ppm, ri, source, idx) in match_list:
         theo_mz = match_mz

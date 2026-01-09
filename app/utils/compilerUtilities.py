@@ -33,6 +33,7 @@ MAT_FIELDS = {
     'NAME:': 'library_id',
     'Num Peaks:': 'num_peak'
     # add collision energy support --- what's the name?
+    # we dont need to know. with the web-app, we can manage it manually
 }
 
 # use to convert less-complicated storage names of variables
@@ -115,7 +116,10 @@ MASTERSHEET_COLUMNS = {
 
 # need this here already to do mode validation in parse_matFile
 def get_charge(adduct):
-    # defines groups to match in a string 
+    """
+    Helper, gets the charge value of an adduct for calculations.
+    """
+    
     pattern = re.search(r'(\d*)([+-])$', adduct)
     if pattern:
         sign = 1 if pattern.group(2) == '+' else -1
@@ -130,6 +134,19 @@ def parse_matFile(
         mode,
         normalize_ms2=True
 ):
+    """
+    Function for reading single .mat files and storing the data in a dictionary.
+
+    Parameters & args:
+        file_path (string): Path to .mat file
+        dictionary (dict): Dictionary to add compound information
+        mode (string): Current mode --- pos/neg are compiled separately
+        normalize_ms2 (bool): Controls whether ms2 data is normalized (separate column created)
+
+    Returns:
+        dictionary (dict): Dictionary w added compound information
+    """
+    
     current_compound = None
     current_record = {}
     reading_peaks = False
@@ -194,6 +211,10 @@ def parse_matFile(
 
 # We have to do one mode at a time. Basically. Dictionary key issues.
 def gather_matData(mode, folder_path='input/mat'):
+    """
+    Helper, uses parse_matFile fn to gather data from all provided .mat files.
+    """
+    
     # A bit of error handling...
     if mode not in ['pos', 'neg']:
         raise ValueError('Invalid mode provided.')
@@ -214,7 +235,14 @@ def gather_matData(mode, folder_path='input/mat'):
 #parse_matFile('input/mat/run6_exports/non-prio/25/pos/ID10760_8.29_287.16.mat', dictionary, 'pos')
 #dictionary = gather_matData('neg')
 
-def create_compilation_dictionary(mat_dictionary, storage_fields):           
+def create_compilation_dictionary(mat_dictionary, storage_fields):    
+    """
+    Helper, creates dictionary for use in the pre-assembly submodule.
+    Compound data from the different sources (experimental, PubChem metadata etc)
+    are gathered in this dictionary in subsequent steps.
+    Here, as a first addition, the gathered .mat data is transferred.
+    """       
+    
     # create dictionary with all storage fields and transfer mat data
     dictionary = {key: {col: None for col in storage_fields} for key in mat_dictionary.keys()}
     for compound in dictionary:
@@ -231,6 +259,17 @@ def create_compilation_dictionary(mat_dictionary, storage_fields):
 #ref_dictionary = gu.sheet_to_dict('output/prepOneSheet.csv', 'internalName')
 
 def add_chemical_metadata(dictionary, ref_dictionary):
+    """
+    Function to add chemical metadata (pcq output) to the compilation dictionary.
+    
+    Parameters & args:
+        dictionary (dict): Pre-assembly dictionary to which data is added for each cpd
+        ref_dictionary (dict): PubChem data in dictionary format (via sheet-to-dict)
+        
+    Returns:
+        dictionary (dict): Updated pre-assembly dictionary
+    """
+    
     for compound in dictionary.keys():
         # maybe need to add flexibility later for different name columns
         lookup_name = re.sub(r' feature no\. \d+$', '', compound)
@@ -259,6 +298,18 @@ def add_chemical_metadata(dictionary, ref_dictionary):
 #dictionary = add_chemical_metadata(dictionary, ref_dictionary)
 
 def add_manual_metadata(dictionary, manual_metadata='files/compiler/manual_metadata.tsv'):
+    """
+    Function to add manually provided experimental metadata to the compilation dictionary.
+    This data is provided by the user in a separate .tsv file.
+    
+    Parameters & args:
+        dictionary (dict): Pre-assembly dictionary to which data is added
+        manual_metadata (string): Path/name for the .tsv file
+        
+    Returns:
+        dictionary (dict): Updated pre-assembly dictionary
+    """
+    
     manual_dictionary = {}
     with open(manual_metadata, 'r', newline='', encoding='utf-8') as m:
         reader = csv.reader(m, delimiter='\t')
@@ -281,6 +332,20 @@ def add_manual_metadata(dictionary, manual_metadata='files/compiler/manual_metad
 # sheets for the RTI website.
 # needs .mat files -- obviously -- for collecting RT and stuff.
 def generate_rtiSheet(dictionary, mode, save_path='output/RTI/'):
+    """
+    Function to generate spreadsheets in the input format of the RTI web app.
+    Used to convert recorded retention times to RTI values.
+    For normal users of the RTI web app (?) there is a maximum batch size of 50 compounds.
+    E.g., for 525 compounds, 10 sheets á 50 cpds will be created and one sheet á 25.
+    
+    Parameters & args:
+        dictionary (dict): Pre-assembly dictionary with necessary compound data
+        mode (string): Current mode --- pos/neg files are created separately
+        
+    Returns:
+        dictionary (dict): Updated pre-assembly dictionary
+    """
+    
     # Ensure output directory exists
     mode_path = os.path.join(save_path, mode)
     os.makedirs(mode_path, exist_ok=True)
@@ -317,6 +382,17 @@ def generate_rtiSheet(dictionary, mode, save_path='output/RTI/'):
 #generate_rtiSheet(dictionary, 'pos')
 
 def gather_RTIData(mode, folder_path='input/RTI/'):
+    """
+    Function to collect data from spreadsheets output by the RTI web app.
+    
+    Parameters & args:
+        mode (string): Current mode
+        folder_path (string): Location of the RTI spreadsheets
+        
+    Returns:
+        rti_dictionary (dict): Dictionary with RTI data for each compound
+    """
+    
     if mode not in ['pos', 'neg']:
         raise ValueError('invalid mode provided')
     rti_dictionary = {}
@@ -332,6 +408,10 @@ def gather_RTIData(mode, folder_path='input/RTI/'):
 #rti_dictionary = gather_RTIData('neg')
 
 def add_RTIData(dictionary, rti_dictionary):
+    """
+    Helper, adds RTI data to the pre-assembly dictionary.
+    """
+    
     for compound in dictionary.keys():
         lookup_name = re.sub(r' feature no\. \d+$', '', compound)
         if lookup_name in rti_dictionary.keys():
@@ -345,6 +425,10 @@ def add_RTIData(dictionary, rti_dictionary):
 
 # FORGET ABOUT THIS FOR NOW - CLASSYFIRE SERVERS ARE DOWN.
 def query_ClassyFire(dictionary, use_ref_sheet=False, sheet_path=None, no_queries=False):
+    """
+    Not in use. Also --- redundant! MassBank (EU) automatically adds chemont data to new entries.
+    """
+    
     n_compounds = len(dictionary.keys())
     # this was added if we already have queried ClassyFire before and
     # want to reuse that half-filled sheet.
@@ -392,6 +476,21 @@ def query_ClassyFire(dictionary, use_ref_sheet=False, sheet_path=None, no_querie
 #dictionary = genericUtilities.sheet_to_dict('output/compiler/preCompilationSheet_neg.xlsx', 'CH$NAME:')
 
 def manual_classyfire(dictionary, ref_sheet_path):
+    """
+    Function to add ClassyFire chemical ontology data to the pre-assembly dictionary.
+    The type of input read by this function comes from the Fiehn lab ClassyFire Batch portal.
+    https://cfb.fiehnlab.ucdavis.edu/
+    
+    Functionally redundant since MassBank update to automatically add chemont data to new entries.
+
+    Parameters & args:
+        dictionary (dict): Pre-assembly dictionary
+        ref_sheetpath (string): Location of the ClassyFire Batch spreadsheet
+
+    Returns:
+        dictionary (dict): Pre-assembly dictionary updated w chemont data
+    """
+    
     # these queries use InChIKeys, so that is the link to our compounds
     class_dict = gu.sheet_to_dict(ref_sheet_path, 'InChIKey')
     for compound, data in dictionary.items():
@@ -417,9 +516,22 @@ def manual_classyfire(dictionary, ref_sheet_path):
 #dictionary = manual_classyfire(dictionary, 'extras/classyfire_1200.csv')
 
 def adduct_checker(compound, data):
-    # for Br-containing (Cl also sometimes? No?) compounds -- 
-    # might need to calculate two monomasses, one for M and one for M+2 etc
-    # ...
+    """
+    Function to validate given ion type/adduct data.
+    Evaluates whether experimental precursor m/z is within expected bounds
+    given the ion type and the theoretical monoisotopic mass.
+    Results of the validation are provided in the pre-assembly module output sheet.
+
+    Parameters & args:
+        compound (string): Library ID for a compound in the pre-assembly dictionary
+        data (dictionary): Compound variable data from the pre-assembly dictionary
+
+    Returns:
+        adduct (string): Ion type/adduct
+    """
+    
+    # in particular Br-containing compounds might need to calculate 
+    # two monomasses, one for M and one for M+2 etc
     e_mass = 0.00054858
     h_mass = 1.00783
     adducts = {
@@ -490,11 +602,20 @@ def prepare_preCompilationSheet(
     annotate_fragments=True, fragment='brute',
     file_name='preComp'
 ):
-    '''
-    Turn dictionary into a sheet before making entries.
-    Allows final manual edits to be made to the "preComp"-sheet,
-    which is later used to create .txt files from
-    '''
+    """
+    Converts pre-assembly dictionary into a spreadsheet, to complete pre-assembly.
+
+    Parameters & args:
+        dictionary (dict): Pre-assembly dictionary
+        mode (string): Current mode, pos/neg
+        annotate_fragments (bool): Controls whether fragment formula annotation is performed
+        fragment (string): Deprecated...
+        file_name (string): Name of output pre-assembly sheet
+
+    Returns:
+        Nothing
+    """
+    
     for i, (compound, data) in enumerate(dictionary.items()):        
         # generate record_title and save sheet
         short_name = re.sub(r' feature no\. \d+$', '', compound)
@@ -528,12 +649,28 @@ def filter_preComp(
         mode, 
         exclude_path='files/compiler/exclude_compounds.txt'
     ):
-    '''
-    Optional function to filter the preComp-sheet when assembling.
-    Besides using a .txt file to skip compounds by name as listed
-    in the .txt file, it also makes comments of enantiomer features
-    for one of the features, while discarding the other.
-    '''
+    """
+    Optional fn to filter the pre-assembly sheet.
+    
+    Allows an 'exclude_compounds' text file to be provided for compounds to skip.
+    
+    Also, compounds that there is more than one experimental feature for
+    and that have the sane name (i.e. two .mat files both with the name Caffeine)
+    have previously had the latter feature given the name "Caffeine feature n."
+    In this step, these features are merged into one, and information about
+    the latter feature appended to the first as a comment.
+    
+    Deprecated...? Filtering behavior can be avoided by having unique
+    names for all feature data.
+
+    Parameters & args:
+        sheet_path (string): Name of the pre-assembly sheet
+        mode (string): Current mode, pos/neg
+        exclude_path (string): Path for the exclude_compounds .txt file
+
+    Returns:
+        filtered_dict (dict): Pre-assembly dictionary, filtered
+    """
     dictionary = gu.sheet_to_dict(sheet_path)
     filtered_dict = {}
     
@@ -567,6 +704,10 @@ def filter_preComp(
 # lets actually fix it when writing txt files, we want it to be intact
 # when doing stuff prior, like formula annotation
 def reformat_charged_formula(formula):
+    """
+    Helper, converts molecular formula strings to MassBank-formatted ones.
+    """
+    
     match = re.match(r'^([A-Za-z0-9]+)([+-])(\d*)$', formula)
     if match:
         formula_base, sign, number = match.groups()
@@ -576,9 +717,11 @@ def reformat_charged_formula(formula):
         return formula
 
 def write_txtFile(compound, data, save_path, field_order=None):
-    '''
-    Helper for create_txtFiles --- writes a single .txt file from dictionary data.
-    '''
+    """
+    Helper for create_txtFiles.
+    Writes a single MassBank-format .txt file to disk.
+    """
+    
     data['library_id'] = compound # need to make this explicit
     with open(save_path, 'w', encoding='utf-8') as f:
         fields = field_order if field_order else FIELD_CONVERSION.keys()
@@ -614,6 +757,22 @@ def create_txtFiles(
         txt_path=f'output/compiler/{str(date.today())}',
         do_filter=True,
     ):
+    """
+    Organizes writing of MassBank-format .txt files.
+    Also creates a final .csv data sheet for all compounds in the assembly.
+    
+    Parameters & args:
+        accession_start (int): Start of accession numbering
+        mode (string): Current mode, pos/neg
+        sheet_path (string): Path to pre-assembly output sheet
+        massbank_fields (string): Path to .txt file with tag order
+        txt_path (string): Path to where .txt files will be placed
+        do_filter (bool): Pass pre-assembly sheet through filter_preComp fn, True/False
+        
+    Returns:
+        Nothing
+    """
+    
     if mode not in ['pos', 'neg']:
         raise ValueError('Invalid mode provided.')
         
@@ -681,6 +840,17 @@ MSP_FIELDS = {
 }
 
 def compSheet_to_msp(sheet_path, mode):
+    """
+    Creates an .msp file from the final assembly sheet.
+    
+    Parameters & args:
+        sheet_path (string): Path for the final assembly sheet
+        mode (string): Current mode, pos/neg
+        
+    Returns:
+        Nothing
+    """
+    
     dictionary = gu.sheet_to_dict(sheet_path, 'CH$NAME:')
     msp_path = f'output/compiler/{str(date.today())}_{mode}.msp'
     with open(msp_path, 'w') as msp:
