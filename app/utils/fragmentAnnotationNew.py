@@ -590,7 +590,6 @@ def read_loss_ref():
     """
     Reads the curated list of neutral losses and fragments from Ma, 2014.
     DOI: https://doi.org/10.1021/ac502818e
-    
     """
     data = {}
     with open('utils/ma2014.csv', 'r') as f:

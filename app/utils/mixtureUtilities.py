@@ -133,7 +133,6 @@ def prepare_data(dictionary):
     Helper that prepares datasets for the mixture distribution function.
     Filters out compounds that have m/z and xlogp data, and normalizes these.
     Both the filtered and normalized data are returned to keep track of assignments.
-    
     """
     
     # let's focus on expected pos mz's for now...
@@ -175,7 +174,6 @@ def assign_with_mass_diff(
         
     Returns:
         labels (np.array): Contains mixture assignments for each compound
-        
     """
     n_samples = len(data)
     for i in range(n_samples):
@@ -232,7 +230,6 @@ def auto_assign_unplaced(
         
     Returns:
         labels (np.array): Contains mixture assignments for each compound
-        
     """
     unassigned = list(np.where(labels == -1)[0])
     

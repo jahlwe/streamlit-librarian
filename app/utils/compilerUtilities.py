@@ -299,7 +299,7 @@ def add_chemical_metadata(dictionary, ref_dictionary):
 
 def add_manual_metadata(dictionary, manual_metadata='files/compiler/manual_metadata.tsv'):
     """
-    Function to add manually provided experimental metadata to the compilation dictionary.
+    Function to add manually provided instrumental metadata to the compilation dictionary.
     This data is provided by the user in a separate .tsv file.
     
     Parameters & args:
