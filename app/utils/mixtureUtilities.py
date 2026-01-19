@@ -384,7 +384,7 @@ def visual_summary(dictionary, group_key='assignedMixture', mz_key='monoisotopic
         sizes = np.full_like(sizes, 10)
 
     fig, ax = plt.subplots(figsize=(9, 6))
-    ax.scatter(masses, groups, s=sizes, c='#4d79ff', alpha=0.7, edgecolors='k', linewidth=0.5)
+    ax.scatter(masses, groups, s=sizes, c=xlogp_shifted, cmap='cividis_r', alpha=0.7, edgecolors='k', linewidth=0.5)
 
     ax.set_xlabel('Monoisotopic mass (Da)', fontsize=12)
     ax.set_ylabel('Mixture', fontsize=12)
@@ -428,8 +428,23 @@ def visual_summary(dictionary, group_key='assignedMixture', mz_key='monoisotopic
 
     n_compounds = len(groups)
     n_groups = len(unique_groups)
-    ax.set_title(f'Compound distribution (n = {n_compounds} compounds; n = {n_groups} mixtures)', 
-                 fontsize=10, fontweight='bold', loc='left')
+    
+    fig.suptitle(
+        f'Compound distribution (n = {n_compounds} compounds; n = {n_groups} mixtures)',
+        fontsize=10,
+        fontweight='bold',
+    )
+    
+    ax.set_title(
+        'Dot scale and color by xlogp',
+        fontsize=10,
+        fontweight='normal',
+        loc='center'
+     )
+    
+    #ax.set_title(f'Compound distribution (n = {n_compounds} compounds; n = {n_groups} mixtures)', 
+    #             fontsize=10, fontweight='bold', loc='left')
+    #fig.suptitle('Dots scaled and colored by xlogp', fontsize=9, fontweight='light')
 
     plt.tight_layout()
     plt.show()

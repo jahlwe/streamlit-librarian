@@ -482,7 +482,7 @@ def extract_fragments_from_bitpaths(mol, bitPaths):
     fp_dict = {}
     for bit, paths in bitPaths.items():
         for bond_indices in paths:
-            submol = Chem.PathToSubmol(mol, bond_indices)
+            submol = Chem.PathToSubmol(mol, bond_indices) # ... PathToSubmol needs ATOM indices?
             if submol.GetNumAtoms() > 0:
                 smiles = Chem.MolToSmiles(submol)
                 fp_dict[smiles] = submol.GetNumAtoms()

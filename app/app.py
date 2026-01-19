@@ -55,8 +55,8 @@ def app():
         <a href="https://www.scilifelab.se/" target="_blank" style="color:#0c616aff;">SciLifeLab</a>
         </p>
         """,
-    unsafe_allow_html=True,
-)
+        unsafe_allow_html=True,
+    )
 
     # --- SESSION RESET LOGIC ---
     # track which module is active
@@ -1291,13 +1291,13 @@ def render_readme():
         """
         Welcome to the Librarian web application!
         \n
-        Librarian provides in-browser data management utilities for assembly 
-        of high-resolution tandem mass spectral records in the MassBank format.  
+        Librarian provides a customizable workflow for assembly of high-resolution 
+        tandem mass spectral records in the MassBank format directly in-browser.  
         The three modules ___pcq___, ___mix___ and ___lib___ support batch query of chemical metadata,
         distribution of compounds to mixtures for HRMS acquisition and (following data acquisition) library assembly, respectively.
         \n
         Complete source code for the web application is available via https://github.com/jahlwe/streamlit-librarian  
-        A command-line version of Librarian is available via https://github.com/jahlwe/librarian
+        A command-line version of Librarian is available via https://github.com/jahlwe/cli-librarian
         \n
         For first-time users, a simple worked example of library assembly using Librarian is given below.
         
