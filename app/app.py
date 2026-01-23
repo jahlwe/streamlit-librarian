@@ -558,7 +558,7 @@ def render_lib_precomp():
                 if rti_archive is not None:
                     archive_type = filetype.guess(rti_archive.getvalue()).extension
                     rti_files_dict = au.read_archive_RTI(rti_archive, archive_type)
-                    rti_files_dict = {v for k, v in rti_files_dict.items() if (k.endswith('.csv') and f'{mode}/' in k)}
+                    rti_files_dict = {k: v for k, v in rti_files_dict.items() if (k.endswith('.csv') and f'{mode}/' in k)}
                     st.info(f'{len(rti_files_dict)} RTI sheets ({mode}) recognized')
                     if len(rti_files_dict) > 0:
                         # process.

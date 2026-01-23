@@ -139,18 +139,18 @@ MASTERSHEET_COLUMNS = {
 
 # fields for msp.
 MSP_FIELDS = {
-    'MS$FOCUSED_ION: PRECURSOR_M/Z': 'NAME:',
-    'MS$FOCUSED_ION: ION_TYPE': 'PRECURSORMZ:',
-    'CH$FORMULA:': 'PRECURSORTYPE:',
-    'CH$COMPOUND_CLASS:': 'Ontology:',
-    'CH$LINK: INCHIKEY': 'INCHIKEY:',
-    'CH$SMILES:': 'SMILES:',
-    'AC$CHROMATOGRAPHY: RETENTION_TIME': 'RETENTIONTIME:',
-    'AC$MASS_SPECTROMETRY: ION_MODE': 'IONMODE:',
-    'AC$INSTRUMENT_TYPE:': 'INSTRUMENTTYPE:',
-    'AC$INSTRUMENT:': 'INSTRUMENT:',
-    'AC$MASS_SPECTROMETRY: COLLISION_ENERGY': 'COLLISIONENERGY:',
-    'PK$NUM_PEAK:': 'Num Peaks:'    
+    'precursor_mz': 'PRECURSORMZ:',
+    'ion_type': 'PRECURSORTYPE:',
+    'molecularFormula': 'FORMULA:',
+    'class': 'Ontology:',
+    'inchikey': 'INCHIKEY:',
+    'smiles': 'SMILES:',
+    'retention_time': 'RETENTIONTIME:',
+    'ion_mode': 'IONMODE:',
+    'instrument_type': 'INSTRUMENTTYPE:',
+    'instrument': 'INSTRUMENT:',
+    'collision_energy': 'COLLISIONENERGY:',
+    'num_peak': 'Num Peaks:'    
 }
 
 # --- METADATA TEMPLATE ---
@@ -616,6 +616,13 @@ def preCompile_app(
             
     validate = True # for ion type stuff below...
     
+    len_before_drop = len(dictionary)
+    # need to do this to skip compounds without pcq data
+    # use a few of the common metadata types to check that sufficient data is present
+    dictionary = {c: d for c, d in dictionary.items() if d.get('monoisotopicMass') and d.get('molecularFormula') and d.get('smiles')}
+    len_after_drop = len(dictionary)
+    print(f'dropped {len_before_drop-len_after_drop} compounds lacking chemical metadata')
+    
     if dictionary:
         total = len(dictionary)
         for i, (compound, data) in enumerate(dictionary.items()):
@@ -882,11 +889,16 @@ def write_mspFile_app(comp_dict, mode):
             if value != '':
                 msp_output.write(f'{msp_field} {value}\n')
         # peak handling
-        peak_data = fields.get('ms2_peaks', '')
+        peak_data = fields.get('ms2_norm', '')
         if peak_data:
-            peak_data = peak_data.split(' ')
-            for i in range(3, len(peak_data)-2, 3):
-                msp_output.write(f'{peak_data[i]}\t{peak_data[i+2]}\n')
+            # OLD CODE --- think we changed format/timing of data since
+            #peak_data = peak_data.split(' ')
+            #for i in range(3, len(peak_data)-2, 3):
+            #    msp_output.write(f'{peak_data[i]}\t{peak_data[i+2]}\n')
+            for peak in peak_data:
+                mz = peak[0]
+                norm_int = peak[2]
+                msp_output.write(f'{mz}\t{norm_int}\n')
         msp_output.write('\n')
     msp_output.seek(0)
     return msp_output.getvalue()
