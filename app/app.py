@@ -101,7 +101,7 @@ def render_pcq():
     st.markdown(
         """
         - Query chemical metadata via __name__, __SMILES__ or __CAS__
-            - If a suitable entry is known a priori, __CID__ queries are also supported
+            - If a suitable entry is known beforehand, __CID__ queries are also supported
         - Query inputs are supplied directly in-browser or by uploading a sheet (.csv, .xlsx)
         - No need for salt (i.e., **X HCl**) pre-cleaning – salts are recognized and parent compound (i.e., **X**) data retrieved instead
         - The `library_id` field is used to link chemical metadata to experimental data during library assembly
@@ -306,7 +306,7 @@ def render_mix():
     st.markdown(
         """
         - Requires an output sheet from the pcq module
-        - In fields below, provide a desired `Number of mixes` and `Minimum mass distance`
+        - In fields below, provide a desired `Number of mixtures` and `Minimum mass distance`
         - logK$_{ow}$ and expected ___m/z___ in positive mode (in most cases, **[M+H]+**) are calculated and used for algorithmic sorting of compounds
         """
     )
@@ -450,7 +450,7 @@ def render_lib_precomp():
         st.markdown(
             """
             - **Pre-assembly**
-                - Collates metadata (pcq module-format), experimental settings (manually supplied) and experimental data (.mat)
+                - Collates metadata (pcq module output), experimental settings (manually supplied) and experimental data (.mat)
                 - Outputs an editable sheet for use in the assembly sub-module
             """
         )
