@@ -283,6 +283,7 @@ def pcQueries(query_dict, query_empty_only=True,
     for i, (idx, data) in enumerate(query_dict.items()):
         pc_data = None # initialize pc_data
         cas_retrieved = False # retrieval success flag for cas queries
+        original_cas_q = None
         pcq_out[idx] = {field: None for field in ALL_PCQ_FIELDS} # initialize dict entry for query
         name_q, smiles_q, cid_q, cas_q = data.get('name_q'), data.get('smiles_q'), data.get('cid_q'), data.get('cas_q')
         # hierarchy of input types --- prioritize cid, then name, then smiles, then cas
@@ -301,6 +302,7 @@ def pcQueries(query_dict, query_empty_only=True,
         if query_type == 'cas' and cas_q:
             cas_from_cid = casQuery_getCID(cas_q)
             if cas_from_cid is not None and str(cas_from_cid).isdigit():
+                original_cas_q = (query_input, query_type)
                 query_input, query_type = cas_from_cid, 'cid'
                 cas_retrieved = True
             else:
@@ -316,14 +318,14 @@ def pcQueries(query_dict, query_empty_only=True,
                     pc_data = pcQuery_expanded(query_input, query_type)
                 else:
                     pc_data = None
-            
+                    
             if not pc_data:
                 print(f'no pubchem entry found --- input: [{query_input}], type: [{query_type}]')
                 pcq_out[idx]['queried_as'] = (query_input, query_type)
                 continue
             
             # store query information
-            pcq_out[idx]['queried_as'] = (query_input, query_type)
+            pcq_out[idx]['queried_as'] = original_cas_q if original_cas_q else (query_input, query_type)
             pcq_out[idx]['queried_at'] = datetime.now().strftime('%H:%M:%S %d/%m/%Y')
             
             # synonyms
