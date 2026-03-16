@@ -18,12 +18,26 @@ from datetime import datetime
 import json
 import math
 import copy
+import ctxpy as ctx
 
 BASE_URL = "https://pubchem.ncbi.nlm.nih.gov/rest/pug_view/data"
 ENDPOINT_TEMPLATE = f"{BASE_URL}/compound/{{compound_cid}}/JSON"
 
 CAS_BASE_URL = "https://pubchem.ncbi.nlm.nih.gov/rest/pug"
 CAS_ENDPOINT_TEMPLATE = f"{CAS_BASE_URL}/compound/name/{{cas_number}}/cids/JSON"
+
+CTX_CHEM_PROPERTIES = [
+    'waterSolubilityTest', 'waterSolubilityOpera', 'viscosityCpCpTestPred',
+    'vaporPressureMmhgTestPred', 'vaporPressureMmhgOperaPred', 'thermalConductivity',
+    'tetrahymenaPyriformis', 'surfaceTension', 'soilAdsorptionCoefficient',
+    'oralRatLd50Mol', 'operaKmDaysOperaPred', 'octanolWaterPartition', 'octanolAirPartitionCoeff',
+    'meltingPointDegcTestPred', 'meltingPointDegcOperaPred', 'hrFatheadMinnow',
+    'hrDiphniaLc50', 'henrysLawAtm', 'flashPointDegcTestPred', 'devtoxTestPred',
+    'density', 'boilingPointDegcTestPred', 'boilingPointDegcOperaPred', 
+    'biodegradationHalfLifeDays', 'bioconcentrationFactorTestPred', 'bioconcentrationFactorOperaPred',
+    'atmosphericHydroxylationRate', 'amesMutagenicityTestPred', 'pkaaOperaPred',
+    'pkabOperaPred'
+    ]
 
 def special_pcp_findParent(query_input, compound_cid):
     """
@@ -163,6 +177,28 @@ def safe_getattr(obj, attr, default=None, cast=None):
     except Exception:
         return default
     
+# ---------- COMPTOX ----------
+
+def get_DTXSID(chem_instance, data):
+    try:
+        # do a .search using the chem instance
+        # prefer to use CAS. inchikey is also good, every cpd with pubchem data should have it.
+        query = data['cas'] if data['cas'] else data['inchikey'] if data['inchikey'] else data['name'] if data['name'] else None
+        if not query:
+            return None
+        res = chem_instance.search(by='equals', query=query)[0]
+        if res and isinstance(res, dict):
+            dtxsid = res.get('dtxsid', None)
+            # CompTox seems to feature relevant cas numbers
+            # Could pick that up while we're here
+            ctx_cas = res.get('casrn', data['cas'])
+            return dtxsid, ctx_cas
+    except:
+        return None
+
+def query_comptox():
+    pass
+    
 # we need to initialize these to make sure our re-query stuff works as it should
 # just for... proper bookkeeping.
 ALL_PCQ_FIELDS = [
@@ -225,7 +261,10 @@ def pcQuery_expanded(query_input, query_type, pc_data=None):
         print(f'no pubchem entry found --- input: [{query_input}] type: [{query_type}]')
         return None
 
-def pcQueries(query_dict, query_empty_only=True, progress_callback=None):
+def pcQueries(query_dict, query_empty_only=True, 
+              query_comptox=False, api_key=None, ctx_query_specs=None,
+              progress_callback=None
+  ):
     """
     Organizes PubChem queries for the pcq module.
     
@@ -243,6 +282,7 @@ def pcQueries(query_dict, query_empty_only=True, progress_callback=None):
     # assume a query_dict structure key = number, data = query inputs
     for i, (idx, data) in enumerate(query_dict.items()):
         pc_data = None # initialize pc_data
+        cas_retrieved = False # retrieval success flag for cas queries
         pcq_out[idx] = {field: None for field in ALL_PCQ_FIELDS} # initialize dict entry for query
         name_q, smiles_q, cid_q, cas_q = data.get('name_q'), data.get('smiles_q'), data.get('cid_q'), data.get('cas_q')
         # hierarchy of input types --- prioritize cid, then name, then smiles, then cas
@@ -260,14 +300,23 @@ def pcQueries(query_dict, query_empty_only=True, progress_callback=None):
         # little sidestep to deal with cas inputs. we get the CID, and change the query type.
         if query_type == 'cas' and cas_q:
             cas_from_cid = casQuery_getCID(cas_q)
-            if cas_from_cid and str(cas_from_cid).isdigit():
+            if cas_from_cid is not None and str(cas_from_cid).isdigit():
                 query_input, query_type = cas_from_cid, 'cid'
+                cas_retrieved = True
             else:
-                query_input, query_type = None
+                cas_retrieved = False
         
         # now helper function for querying
         try:
-            pc_data = pcQuery_expanded(query_input, query_type)
+            # deal with non-cas and cas stuff
+            if query_type != 'cas':
+                pc_data = pcQuery_expanded(query_input, query_type)
+            else:
+                if cas_retrieved:
+                    pc_data = pcQuery_expanded(query_input, query_type)
+                else:
+                    pc_data = None
+            
             if not pc_data:
                 print(f'no pubchem entry found --- input: [{query_input}], type: [{query_type}]')
                 pcq_out[idx]['queried_as'] = (query_input, query_type)
@@ -307,6 +356,28 @@ def pcQueries(query_dict, query_empty_only=True, progress_callback=None):
             # decide library_id
             library_id = data.get('library_id')
             pcq_out[idx]['library_id'] = library_id if library_id else pcq_out[idx]['name']
+            
+            # ---------- query comptox HERE? ---------- 
+            if query_comptox and api_key and ctx_query_specs:
+                # we will probably always initiate a Chemical instance
+                chem_instance = ctx.Chemical(x_api_key=api_key)
+                
+                # use dtxsid from pubchem if we have it
+                dtxsid = pcq_out[idx].get('comptoxURL', None)
+                # if not...
+                if not dtxsid:
+                    dtxsid, cas = get_DTXSID(chem_instance, pcq_out[idx])
+
+                if dtxsid:
+                    # for now, we only get chem.details stuff
+                    try:
+                        ctx_data = chem_instance.details(by='dtxsid',query=dtxsid)
+                        if ctx_data:
+                            for prop in ctx_query_specs:
+                                if prop in ctx_data:
+                                    pcq_out[idx][prop] = ctx_data[prop]
+                    except:
+                        pass
                 
         except Exception as e:
             # need to change this, later.

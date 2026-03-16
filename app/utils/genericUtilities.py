@@ -338,7 +338,7 @@ def idx_dict_to_sheet(
     # end
 
 # For testing.
-#dictionary = sheet_to_dict('input/compoundList.xlsx')
+#dictionary = sheet_to_dict('pcq_out.csv')
 #dictionary = sheet_to_dict('output/pcq_out.csv')
 #dict_to_sheet(dictionary, 'testOut')
 

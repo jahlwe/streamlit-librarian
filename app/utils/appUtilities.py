@@ -370,7 +370,9 @@ def parse_matFile_app(
     # Use get_charge on the ion type data, compare it to mode_sign
     # only if the mat file contains an ion type annotation though
     if current_record.get('ion_type', None):
-        mode_agreement = get_charge(current_record['ion_type']) == mode_sign  
+        n = get_charge(current_record['ion_type'])
+        mode_indicator = n / abs(n) # NEED to do this! Errors for +2 charges before.
+        mode_agreement = mode_indicator == mode_sign  
         if current_compound and current_record and mode_agreement:
             dictionary[current_compound] = current_record.copy()
     # if we don't have an ion type annotation, we have to leave it empty for now
@@ -378,7 +380,7 @@ def parse_matFile_app(
     else:
         current_record['ion_type'] = None
         dictionary[current_compound] = current_record.copy()
-        
+    
     return dictionary
 
 def gather_matData_app(mat_files_dict, mode, custom_mat_fields={}):
@@ -481,9 +483,7 @@ def adduct_assigner(compound, data):
     
     for adduct in adduct_subset.keys():
         charge = get_charge(adduct)
-        print('outside loop')
         for i in range(nBr + 1 if nBr > 0 else 1):
-            print('inside loop')
             theo_mz = (monomass + adduct_subset[adduct] + i * BR_ISOTOPE_DIFF) / abs(charge)
             ppm_dev = abs(((theo_mz - exp_mz)/ theo_mz) * 1e6)
             if ppm_dev < 10 and ppm_dev < best_ppm:
@@ -600,7 +600,6 @@ def preCompile_app(
     Returns:
         dictionary (dict): Pre-assembly dictionary
     """
-    
     if mat_data:
         # we do call for create compilation dictionary here
         # now need to bring the full, possibly custom storage fields in explicitly
@@ -647,10 +646,15 @@ def preCompile_app(
             if annotate_fragments[0]: # if we should annotate, this is True
                 try:
                     print(f'annotating {compound} MS2')
-                    loss_fragments = fa.generate_ref_fragments(data)
-                    loss_fragments = fa.generate_more_fragments(data, loss_fragments)
-                    match_list = fa.match_loss_fragments(data, loss_fragments)
-                    data['frag_annot'] = fa.format_annotation(data, match_list)
+                    # 260215 --- changes, now recursive formula generation
+                    # MAKE PPM TOL ADJUSTABLE
+                    candidates = fa.generate_subformulas(data, ppm_tol=10)
+                    #print('past gen subformulas')
+                    candidates = fa.match_iso_patterns(data, candidates)
+                    #print('past match iso patterns')
+                    result = fa.finalize_annotation(data, candidates)
+                    #print('past finalize')
+                    data['frag_annot'] = fa.format_annotation(data, result)
                     if annotate_fragments[1]: # if we should discard, this is True
                         print('discarding unannotated fragments')
                         ms2_trimmed = []
@@ -752,8 +756,8 @@ def compileLib_app(
         short_acc = f'{acc_short}{acc_n}'
         current_file = f'{compound}_{short_acc}'
 
-        data['acc'] = current_acc
-        data['short_acc'] = short_acc
+        data['accession'] = current_acc
+        data['short_accession'] = short_acc
         # MassBank wants dates in this format! yyyy.mm.dd
         data['date'] = str(date.today()).replace('-', '.')
         data['file_name'] = current_file
@@ -769,7 +773,7 @@ def compileLib_app(
         
         if data.get('frag_annot', None):
             annot_line = 'm/z tentative_formula formula_count mass error(ppm)\n' + ''.join(
-                f'  {theo_mz} {t_f} {f_count} {exp_mz} {ppm}\n' for theo_mz, t_f, f_count, exp_mz, ppm in data['frag_annot'] if theo_mz is not None
+                f'  {exp_mz} {t_f} {f_count} {exp_mz} {ppm}\n' for exp_mz, t_f, f_count, theo_mz, ppm in data['frag_annot'] if theo_mz is not None
             )
             data['ms2_annot'] = annot_line
         
@@ -779,7 +783,9 @@ def compileLib_app(
         if data.get('frag_annot', None):
             annot_lookup = {}
             # collect all annotated peaks
-            for theo_mz, formula, count, exp_mz, ppm in data.get('frag_annot', []):
+            for exp_mz, formula, count, theo_mz, ppm in data.get('frag_annot', []):
+                #if not theo_mz:
+                #    continue
                 key = round(exp_mz, 4)  # round to 4 decimals to avoid floating point issues
                 annot_lookup[key] = {
                     'theo_mz': theo_mz,
@@ -914,7 +920,7 @@ def create_compZip(comp_data, mode, field_mapping):
         # add .txt files
         for compound, data in comp_data.items():
             txt_content = write_txtFile_app(compound, data, field_mapping)
-            txt_filename = f'{compound}_{data["short_acc"]}.txt'
+            txt_filename = f'{data["accession"]}.txt'
             zipf.writestr(f'{mode}/txt/{txt_filename}', txt_content)
         
         # add .csv

@@ -26,10 +26,12 @@ import plotly.graph_objects as go
 from rdkit import Chem
 from rdkit.Chem import Draw
 from PIL import Image
+from utils.pubchemUtilities import CTX_CHEM_PROPERTIES
 
 # streamlit
 def app():
-    st.set_page_config(page_title='librarian', layout='wide')
+    st.set_page_config(page_title='Librarian', layout='wide',
+                       page_icon='static/favicon.png')
     st.logo('static/logo.png', size='large')
     
     # --- MODULES ---
@@ -98,206 +100,339 @@ def render_pcq():
     st.header('pcq module')
     st.caption('Batch query of chemical metadata via PubChem')
     
-    st.markdown(
-        """
-        - Query chemical metadata via __name__, __SMILES__ or __CAS__
-            - If a suitable entry is known beforehand, __CID__ queries are also supported
-        - Query inputs are supplied directly in-browser or by uploading a sheet (.csv, .xlsx)
-        - No need for salt (i.e., **X HCl**) pre-cleaning – salts are recognized and parent compound (i.e., **X**) data retrieved instead
-        - The `library_id` field is used to link chemical metadata to experimental data during library assembly
-            - If left blank, `library_id` defaults to PubChem entry title names
-            - ___N.B.!___ To ensure proper downstream management of chemical metadata, `library_id` values should be unique
-        """
-    )
-    
-    pcq_submodule = st.radio(
-        'Select',
-        ('in-browser', 'from sheet'),
-        horizontal=True,
-        label_visibility='collapsed'
-    )
-    
-    # ---- FROM SHEET ----
-    if pcq_submodule == 'from sheet':
-        # initialize session state variables
-        session_keys = ['pcq_input', 'pcq_output', 'pcq_success']
-        for key in session_keys + ['pcq_dict', 'sheet_name']:
-            if key not in st.session_state:
-                if key == 'pcq_dict':
-                    st.session_state[key] = {}
-                else:
-                    st.session_state[key] = None
+    # 260219; also parameters for pcq. Comptox?
+    #if st.button("⚙️ Parameters"):
+    #    st.session_state['show_pcq_param'] = not st.session_state.get('show_pcq_param', False)
         
-        col1, col2 = st.columns([1,5], vertical_alignment='center')
-        with col1:
-            sheet_template = au.generate_pcq_template()
-            st.download_button(
-                label='Download template',
-                data=sheet_template,
-                file_name='pcq_template.csv',
-                mime='text/comma-separated-values'
-            )
-        with col2:
-            sheet = st.file_uploader(label='sheet', type=['csv', 'xlsx'], 
-                                     label_visibility='collapsed')
-    
-        # clears state when an uploaded file is removed
-        if sheet is None:
-            if any(st.session_state[key] is not None for key in session_keys):
-                for key in session_keys:
-                    st.session_state[key] = None
-                st.rerun()
-        else:
-            try:
-                st.session_state['pcq_input'] = gu.sheet_to_idx_dict(sheet)
-                # reset logic if a new sheet is uploaded (without clearing the uploader first)
-                current_name = sheet.name if hasattr(sheet, 'name') else str(sheet)
-                if current_name != st.session_state['sheet_name']:
-                    for key in 'pcq_output', 'pcq_success':
-                        st.session_state[key] = None
-                    st.session_state['sheet_name'] = current_name
-                    if any('queried_as' in data for data in st.session_state['pcq_input'].values()):
-                        # if we jump from one module to the next, we will clear the
-                        # stored pcq_dict state --- but we need to retain it to
-                        # make the re-query work nicely. solution --- if we input
-                        # a pcq output sheet as an input, just rebuild the pcq_dict
-                        # accordingly. should work?
-                        # we probably have to specify not to include name_q etc.
-                        EXCLUDE_KEYS = ['name_q', 'cas_q', 'smiles_q', 'cid_q']
-                        st.session_state['pcq_dict'] = {
-                            idx: {k: v for k, v in data.items() if k not in EXCLUDE_KEYS} for idx, data in st.session_state['pcq_input'].items()
-                        }
-            except Exception as e:
-                st.error(f'Error reading file: {str(e)}')
-    
-        if st.session_state['pcq_input']:
-            # prepare query dict based on what type of sheet has been uploaded --- fresh template or pcq output
-            if any('queried_as' in data for data in st.session_state['pcq_input'].values()):
-                # we should also support changing 'queried_as' information for re-queries
-                # which is a little... involved. made a helper in au.
-                query_dict = au.query_dict_from_pcq_input(st.session_state['pcq_input'])
-                st.info(f'{len(query_dict)} compound(s) recognized (re-query)')
-                # old version that only supports manually entered CIDs and not changes to 'queried_as'
-                #query_dict = {
-                #    idx: {'name_q': None, 'cas_q': None, 'smiles_q': None, 'cid_q': data.get('pubchemCID')} for idx, data in st.session_state['pcq_input'].items() if not data.get('queried_at')}
-            else:
-                query_dict = st.session_state['pcq_input']
-                st.info(f'{len(query_dict)} compound(s) recognized')
-                
-            with st.form(key='pcq_form'):
-                submitted = st.form_submit_button('run pcq')
-                if submitted:
-                    progress_bar = st.progress(0)
-                    status_text = st.empty()
-                    def progress_callback(current, total, compound):
-                        progress_bar.progress(current / total)
-                        status_text.text(f'Processing {current}/{total} : {compound}')
-                    try:
-                        pcq_result = pu.pcQueries(query_dict, progress_callback=progress_callback)
-                        st.session_state['pcq_dict'].update(pcq_result)
-                        output = io.BytesIO()
-                        gu.idx_dict_to_sheet(st.session_state['pcq_dict'], buffer=output)
-                        output.seek(0)
-                        st.session_state['pcq_output'] = output
-                        st.session_state['pcq_success'] = True
-                    except Exception as e:
-                        st.error(f'Error: {str(e)}')
-                        st.session_state['pcq_success'] = False
-                        # partial results.... ?
-                        st.download_button('download partial results', st.session_state['pcq_output'].getvalue(),
-                                           file_name='pcq_out.csv')
-    
-        # display download button if processing was successful
-        if st.session_state.get('pcq_success'):
-            st.success('pcq complete!')
-            if st.session_state['pcq_output']:
-                st.download_button('download results', st.session_state['pcq_output'].getvalue(),
-                                   file_name='pcq_out.csv')
-                
-    # ---- IN-BROWSER ----
-    elif pcq_submodule == 'in-browser':
-        if 'in_browser_df' not in st.session_state or not isinstance(st.session_state['in_browser_df'], pd.DataFrame):
-            st.session_state['in_browser_df'] = pd.DataFrame(
-                [{'library_id': None, 'name_q': None, 'cas_q': None, 'smiles_q': None, 'cid_q': None, 'pcq_success': False}]
-            )
-        if 'pcq_dict' not in st.session_state or not isinstance(st.session_state['pcq_dict'], dict):
-            st.session_state['pcq_dict'] = {}
-        # and other stuff
-        session_keys = ['pcq_output', 'pcq_success']
-        for key in session_keys:
-            if key not in st.session_state:
-                st.session_state[key] = None
-            
-        df = st.data_editor(
-            st.session_state['in_browser_df'],
-            num_rows='dynamic',
-            key='ibdf'
+    if not st.session_state.get('show_pcq_param', False):
+        st.markdown(
+            """
+            - Query chemical metadata via __name__, __SMILES__ or __CAS__
+                - If a suitable entry is known beforehand, __CID__ queries are also supported
+            - Query inputs are supplied directly in-browser or by uploading a sheet (.csv, .xlsx)
+            - No need for salt (i.e., **X HCl**) pre-cleaning – salts are recognized and parent compound (i.e., **X**) data retrieved instead
+            - The `library_id` field is used to link chemical metadata to experimental data during library assembly
+                - If left blank, `library_id` defaults to PubChem entry title names
+                - ___N.B.!___ To ensure proper downstream management of chemical metadata, `library_id` values should be unique
+            """
+        )    
+        
+        pcq_submodule = st.radio(
+            'Select',
+            ('in-browser', 'from sheet'),
+            horizontal=True,
+            label_visibility='collapsed'
         )
         
-        st.session_state['in_browser_df_current'] = df
-        has_data = any(row for row in df.to_dict(orient='records') if any(row.get(field) for field in ['name_q', 'cas_q', 'smiles_q','cid_q']))
-        # use this as a counter
-        entries_with_content = sum(1 for row in df.to_dict(orient='records') if any(row.get(field) for field in ['name_q', 'cas_q', 'smiles_q','cid_q']))
-
-        if has_data:
-            st.info(f'{entries_with_content} compounds recognized')
-            with st.form(key='pcq_form'):
-                submitted = st.form_submit_button('run_pcq')
-                if submitted:
-                    all_rows = df.to_dict(orient='records')
-                    query_rows = [
-                        (idx, row) for idx, row in enumerate(all_rows) if any([row.get('name_q'), row.get('cas_q'), row.get('smiles_q'), row.get('cid_q')]) and not row.get('pcq_success')
-                    ]
-                    if query_rows:
-                        query_dict = {
-                            idx: {**row} for idx, row in query_rows
-                        }
-                        print(query_dict)
+        # ---- FROM SHEET ----
+        if pcq_submodule == 'from sheet':
+            # initialize session state variables
+            session_keys = ['pcq_input', 'pcq_output', 'pcq_success']
+            for key in session_keys + ['pcq_dict', 'sheet_name']:
+                if key not in st.session_state:
+                    if key == 'pcq_dict':
+                        st.session_state[key] = {}
+                    else:
+                        st.session_state[key] = None
+            
+            col1, col2 = st.columns([1,5], vertical_alignment='center')
+            with col1:
+                sheet_template = au.generate_pcq_template()
+                st.download_button(
+                    label='Download template',
+                    data=sheet_template,
+                    file_name='pcq_template.csv',
+                    mime='text/comma-separated-values'
+                )
+            with col2:
+                sheet = st.file_uploader(label='sheet', type=['csv', 'xlsx'], 
+                                         label_visibility='collapsed')
+        
+            # clears state when an uploaded file is removed
+            if sheet is None:
+                if any(st.session_state[key] is not None for key in session_keys):
+                    for key in session_keys:
+                        st.session_state[key] = None
+                    st.rerun()
+            else:
+                try:
+                    st.session_state['pcq_input'] = gu.sheet_to_idx_dict(sheet)
+                    # reset logic if a new sheet is uploaded (without clearing the uploader first)
+                    current_name = sheet.name if hasattr(sheet, 'name') else str(sheet)
+                    if current_name != st.session_state['sheet_name']:
+                        for key in 'pcq_output', 'pcq_success':
+                            st.session_state[key] = None
+                        st.session_state['sheet_name'] = current_name
+                        if any('queried_as' in data for data in st.session_state['pcq_input'].values()):
+                            # if we jump from one module to the next, we will clear the
+                            # stored pcq_dict state --- but we need to retain it to
+                            # make the re-query work nicely. solution --- if we input
+                            # a pcq output sheet as an input, just rebuild the pcq_dict
+                            # accordingly. should work?
+                            # we probably have to specify not to include name_q etc.
+                            EXCLUDE_KEYS = ['name_q', 'cas_q', 'smiles_q', 'cid_q']
+                            st.session_state['pcq_dict'] = {
+                                idx: {k: v for k, v in data.items() if k not in EXCLUDE_KEYS} for idx, data in st.session_state['pcq_input'].items()
+                            }
+                except Exception as e:
+                    st.error(f'Error reading file: {str(e)}')
+        
+            if st.session_state['pcq_input']:
+                # prepare query dict based on what type of sheet has been uploaded --- fresh template or pcq output
+                if any('queried_as' in data for data in st.session_state['pcq_input'].values()):
+                    # we should also support changing 'queried_as' information for re-queries
+                    # which is a little... involved. made a helper in au.
+                    query_dict = au.query_dict_from_pcq_input(st.session_state['pcq_input'])
+                    st.info(f'{len(query_dict)} compound(s) recognized (re-query)')
+                    # old version that only supports manually entered CIDs and not changes to 'queried_as'
+                    #query_dict = {
+                    #    idx: {'name_q': None, 'cas_q': None, 'smiles_q': None, 'cid_q': data.get('pubchemCID')} for idx, data in st.session_state['pcq_input'].items() if not data.get('queried_at')}
+                else:
+                    query_dict = st.session_state['pcq_input']
+                    st.info(f'{len(query_dict)} compound(s) recognized')
+                    
+                with st.form(key='pcq_form'):
+                    submitted = st.form_submit_button('run pcq')
+                    if submitted:
                         progress_bar = st.progress(0)
                         status_text = st.empty()
                         def progress_callback(current, total, compound):
                             progress_bar.progress(current / total)
                             status_text.text(f'Processing {current}/{total} : {compound}')
                         try:
-                            dictionary = pu.pcQueries(query_dict, progress_callback=progress_callback)
-                            st.session_state['pcq_dict'].update(dictionary)
+                            # CHECK FOR COMPTOX STUFF...
+                            use_comptox = st.session_state.get('use_comptox', False)
+                            ctx_api_key = st.session_state.get('ctx_api_key')
+                            ctx_specs = st.session_state.get('ctx_query_specs', {})
+                            
+                            if use_comptox and ctx_api_key and any(ctx_specs.values()):
+                                q_ctx = True
+                                q_specs = [prop for prop, val in ctx_specs.items() if val]
+                            else:
+                                q_ctx = False
+                                q_specs = None
+                                                              
+                            pcq_result = pu.pcQueries(query_dict, progress_callback=progress_callback,
+                                                      query_comptox=q_ctx, 
+                                                      api_key=ctx_api_key, 
+                                                      ctx_query_specs=q_specs
+                                                      )
+                            
+                            st.session_state['pcq_dict'].update(pcq_result)
                             output = io.BytesIO()
                             gu.idx_dict_to_sheet(st.session_state['pcq_dict'], buffer=output)
                             output.seek(0)
                             st.session_state['pcq_output'] = output
                             st.session_state['pcq_success'] = True
-                            
-                            # update rows with query results
-                            updated_rows = []                            
-                            for idx, row in enumerate(all_rows):
-                                entry = st.session_state['pcq_dict'].get(idx)
-                                if entry:
-                                    if 'library_id' in entry:
-                                        row['library_id'] = entry.get('library_id', row.get('library_id'))
-                                    cid = entry.get('pubchemCID')
-                                    row['pcq_success'] = isinstance(cid, int)
-                                else:
-                                    row['pcq_success'] = False
-                                updated_rows.append(row)
-                            
-                            # create updated df and feed it into the data_editor frame
-                            updated_df = pd.DataFrame(updated_rows)            
-                            st.session_state['in_browser_df'] = updated_df
-                            st.rerun()
-                            
                         except Exception as e:
                             st.error(f'Error: {str(e)}')
                             st.session_state['pcq_success'] = False
-                            # .... partial download results?
+                            # partial results.... ?
                             st.download_button('download partial results', st.session_state['pcq_output'].getvalue(),
                                                file_name='pcq_out.csv')
-                            
-        # display dl button if query was successful
-        if st.session_state.get('pcq_success'):
-            st.success('pcq complete!')            
-            if st.session_state['pcq_output']:
-                st.download_button('download results', st.session_state['pcq_output'].getvalue(),
-                                   file_name='pcq_out.csv')
+        
+            # display download button if processing was successful
+            if st.session_state.get('pcq_success'):
+                st.success('pcq complete!')
+                if st.session_state['pcq_output']:
+                    st.download_button('download results', st.session_state['pcq_output'].getvalue(),
+                                       file_name='pcq_out.csv')
+                    
+        # ---- IN-BROWSER ----
+        elif pcq_submodule == 'in-browser':
+            #print(f"ibdf: {st.session_state['in_browser_df_current']}")
+            #print(f"current: {st.session_state['in_browser_df_current']}")
+            if 'in_browser_df' not in st.session_state or not isinstance(st.session_state['in_browser_df'], pd.DataFrame):
+                st.session_state['in_browser_df'] = pd.DataFrame(
+                    [{'library_id': None, 'name_q': None, 'cas_q': None, 'smiles_q': None, 'cid_q': None, 'pcq_success': False}]
+                )
+            
+            if 'pcq_dict' not in st.session_state or not isinstance(st.session_state['pcq_dict'], dict):
+                st.session_state['pcq_dict'] = {}
+            # and other stuff
+            session_keys = ['pcq_output', 'pcq_success']
+            for key in session_keys:
+                if key not in st.session_state:
+                    st.session_state[key] = None
+            
+            # streamlit only keeps data for rendered widgets?
+            # i dont know if that's true. because the checkboxes are
+            # maintained if i go into params, out, and back again.
+            df = st.data_editor(
+                st.session_state['in_browser_df'],
+                num_rows='dynamic',
+                key='ibdf'
+            )
+                        
+            st.session_state['in_browser_df_current'] = df
+            has_data = any(row for row in df.to_dict(orient='records') if any(row.get(field) for field in ['name_q', 'cas_q', 'smiles_q','cid_q']))
+            # use this as a counter
+            entries_with_content = sum(1 for row in df.to_dict(orient='records') if any(row.get(field) for field in ['name_q', 'cas_q', 'smiles_q','cid_q']))
+    
+            if has_data:
+                st.info(f'{entries_with_content} compounds recognized')
+                with st.form(key='pcq_form'):
+                    submitted = st.form_submit_button('run_pcq')
+                    if submitted:
+                        all_rows = df.to_dict(orient='records')
+                        query_rows = [
+                            (idx, row) for idx, row in enumerate(all_rows) if any([row.get('name_q'), row.get('cas_q'), row.get('smiles_q'), row.get('cid_q')]) and not row.get('pcq_success')
+                        ]
+                        if query_rows:
+                            query_dict = {
+                                idx: {**row} for idx, row in query_rows
+                            }
+                            #print(query_dict)
+                            progress_bar = st.progress(0)
+                            status_text = st.empty()
+                            def progress_callback(current, total, compound):
+                                progress_bar.progress(current / total)
+                                status_text.text(f'Processing {current}/{total} : {compound}')
+                            try:
+                                # CHECK FOR COMPTOX STUFF...
+                                use_comptox = st.session_state.get('use_comptox', False)
+                                ctx_api_key = st.session_state.get('ctx_api_key')
+                                ctx_specs = st.session_state.get('ctx_query_specs', {})
+                                
+                                if use_comptox and ctx_api_key and any(ctx_specs.values()):
+                                    q_ctx = True
+                                    q_specs = [prop for prop, val in ctx_specs.items() if val]
+                                else:
+                                    q_ctx = False
+                                    q_specs = None
+                                                                  
+                                dictionary = pu.pcQueries(query_dict, progress_callback=progress_callback,
+                                                          query_comptox=q_ctx, 
+                                                          api_key=ctx_api_key, 
+                                                          ctx_query_specs=q_specs
+                                                          )
+                                
+                                st.session_state['pcq_dict'].update(dictionary)
+                                output = io.BytesIO()
+                                gu.idx_dict_to_sheet(st.session_state['pcq_dict'], buffer=output)
+                                output.seek(0)
+                                st.session_state['pcq_output'] = output
+                                st.session_state['pcq_success'] = True
+                                
+                                # update rows with query results
+                                updated_rows = []                            
+                                for idx, row in enumerate(all_rows):
+                                    entry = st.session_state['pcq_dict'].get(idx)
+                                    if entry:
+                                        if 'library_id' in entry:
+                                            row['library_id'] = entry.get('library_id', row.get('library_id'))
+                                        cid = entry.get('pubchemCID')
+                                        row['pcq_success'] = isinstance(cid, int)
+                                    else:
+                                        row['pcq_success'] = False
+                                    updated_rows.append(row)
+                                
+                                # create updated df and feed it into the data_editor frame
+                                updated_df = pd.DataFrame(updated_rows)            
+                                st.session_state['in_browser_df'] = updated_df
+                                st.rerun()
+                                
+                            except Exception as e:
+                                st.error(f'Error: {str(e)}')
+                                st.session_state['pcq_success'] = False
+                                # .... partial download results?
+                                st.download_button('download partial results', st.session_state['pcq_output'].getvalue(),
+                                                   file_name='pcq_out.csv')
+                                
+            # display dl button if query was successful
+            if st.session_state.get('pcq_success'):
+                st.success('pcq complete!')            
+                if st.session_state['pcq_output']:
+                    st.download_button('download results', st.session_state['pcq_output'].getvalue(),
+                                       file_name='pcq_out.csv')
+    else:
+        # ---------- PARAMS ----------
+        for key in ['use_comptox', 'ctx_api_key']:
+            if key not in st.session_state:
+                st.session_state[key] = False if key == 'use_comptox' else None
+                
+        # need to keep track of user data retrieval selection
+        if 'ctx_query_specs' not in st.session_state:
+            st.session_state['ctx_query_specs'] = {prop: False for prop in CTX_CHEM_PROPERTIES}
+        
+        #print(st.session_state['comptox_api_key'])
+        #print(st.session_state['ctx_query_specs'])
+        
+        left_col, right_col = st.columns([1, 1])
+
+        with left_col:
+            st.markdown("""**PubChem**  
+                        No customization options are currently available.
+                        """)
+
+        with right_col:
+            st.markdown("""**CompTox**  
+                        Query the EPA CompTox resources for additional metadata.  
+                        Requires an individual API key. For information, see:  
+                        https://www.epa.gov/comptox-tools/computational-toxicology-and-exposure-apis
+                        
+                        """)
+            
+            st.session_state['use_comptox'] = st.checkbox(
+                "Query CompTox", 
+                value=st.session_state['use_comptox'], 
+                key='use_comptox_cb'
+            )
+            
+            if st.session_state['use_comptox']:
+                # API KEY ENTRY
+                comptox_api_key = st.text_input(
+                    "CompTox API key", 
+                    value=st.session_state['ctx_api_key'] or '',
+                    key='ctx_key_input',
+                )
+                
+                if comptox_api_key:
+                    st.session_state['ctx_api_key'] = comptox_api_key
+                else:
+                    st.session_state['ctx_api_key'] = None
+                    
+                # NEED CHECKBOXES OR QUERY CHOICES HERE, for chem.details
+                st.markdown('#### CCTE Chemical Data')
+            
+                # select all?
+                #select_all = st.checkbox(
+                #    "Select all",
+                #    key='ctx_select_all',
+                #    on_change=lambda: function_needed(st.session_state['ctx_query_specs'],
+                #                                      st.session_state['ctx_select_all']))
+                
+                # --- CHECKBOXES ---
+                cols = st.columns(3)
+                for i, prop in enumerate(CTX_CHEM_PROPERTIES):
+                    col_idx = i % 3
+                    with cols[col_idx]:
+                        #st.caption(f'{prop}')
+                        st.markdown(f"""
+                            <div style="font-size: 0.775rem; color: black; margin-bottom: 0.5rem;">
+                                {prop}
+                            </div>
+                            """, unsafe_allow_html=True
+                        )
+                        
+                        current_state = st.session_state['ctx_query_specs'][prop]
+        
+                        widget_value = st.checkbox(
+                            'value', label_visibility='collapsed',
+                            value=current_state,
+                            key=f'{prop}'
+                        )
+                        
+                        if widget_value != current_state:
+                            st.session_state['ctx_query_specs'][prop] = widget_value
+                            st.rerun()
+                        
+                        # maybe shorten names and stuff
+                        #st.session_state['ctx_query_specs'][prop] = st.checkbox(
+                        #    prop.replace('TestPred', 'T').replace('OperaPred', 'OP'),
+                        #    value=st.session_state['ctx_query_specs'][prop],
+                        #    key=f'{prop}'
+                    #)
     # end
 
 def render_mix():
@@ -743,7 +878,7 @@ def render_lib_compile():
     # also init parameter stuff
     if 'txt_fields' not in st.session_state or not isinstance(st.session_state['txt_fields'], pd.DataFrame):
         st.session_state['txt_fields'] = pd.DataFrame(
-            [{'storage_tag': k, 'massbank_tag': v} for k, v in cu.FIELD_CONVERSION.items()]
+            [{'storage_tag': k, 'massbank_tag': v} for k, v in au.FIELD_CONVERSION.items()]
         )
         
     if 'txt_fields_edit_buffer' not in st.session_state:
@@ -862,7 +997,7 @@ def render_lib_compile():
             compound_options = []
             compound_keys = []
             for compound, data in st.session_state['comp_data'].items():
-                display_name = f"{data.get('acc', 'NOACC')} - {compound}"
+                display_name = f"{data.get('accession', 'NOACC')} - {compound}"
                 compound_options.append(display_name)
                 compound_keys.append(compound)
         
