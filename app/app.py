@@ -36,9 +36,11 @@ def app():
     
     # --- MODULES ---
     st.sidebar.title('modules')
-    module = st.sidebar.radio('Select:', ['pcq', 'mix', 'lib', 'utilities', 'readme'])
-    # submodules for lib
-    if module == 'lib':
+    module = st.sidebar.radio('Select:', ['home', 'pcq', 'mix', 'lib', 'utilities']) # readme now submod of hello
+    # submodules for hello and lib
+    if module == 'home':
+        submodule = st.sidebar.radio('Sub-module:', ['main', 'readme'])        
+    elif module == 'lib':
         submodule = st.sidebar.radio('Sub-module:', ['pre-assembly', 'assembly'])
     else: 
         submodule = None
@@ -82,7 +84,12 @@ def app():
         st.rerun()
         
     # --- MODULE ROUTING ---
-    if module == 'pcq':
+    if module == 'home':
+        if submodule == 'main':
+            render_hello()
+        elif submodule == 'readme':
+            render_readme()
+    elif module == 'pcq':
         render_pcq()
     elif module == 'mix':
         render_mix()
@@ -93,8 +100,8 @@ def app():
             render_lib_compile()
     elif module == 'utilities':
         render_utilities()
-    elif module == 'readme':
-        render_readme()
+    #elif module == 'readme':
+    #    render_readme()
     
 def render_pcq():
     st.header('pcq module')
@@ -261,6 +268,30 @@ def render_pcq():
             df = st.data_editor(
                 st.session_state['in_browser_df'],
                 num_rows='dynamic',
+                column_config={
+                    'library_id': st.column_config.TextColumn(
+                        'Library ID',
+                        #help='you can write helpful text here',
+                    ),
+                    'name_q': st.column_config.TextColumn(
+                        'Name',
+                    ),
+                    'cas_q': st.column_config.TextColumn(
+                        'CAS no.',
+                    ),
+                    'smiles_q': st.column_config.TextColumn(
+                        'SMILES',
+                        #help='Enter SMILES string',
+                        #width=200
+                    ),
+                    'cid_q': st.column_config.NumberColumn(
+                        'PubChem CID',
+                    ),
+                    'pcq_success': st.column_config.CheckboxColumn(
+                        'Retrieved',
+                        disabled=True
+                    )
+                },
                 key='ibdf'
             )
                         
@@ -854,13 +885,29 @@ def render_lib_precomp():
                  
         with mat_static:
             st.markdown('**Basic fields (.mat data)**')
-            st.dataframe(static_df, use_container_width=True)
+            st.dataframe(static_df, use_container_width=True,
+                         column_config={
+                             "extract_tag": st.column_config.TextColumn(
+                                 "Extraction tag",
+                                 ),
+                             "storage_tag": st.column_config.TextColumn(
+                                 "Storage tag",
+                                 )
+                         },)
         
         with mat_custom:
             st.markdown('**Custom fields (.mat data)**')
             st.data_editor(
                 st.session_state['mat_fields'],
                 num_rows='dynamic',
+                column_config={
+                    "extract_tag": st.column_config.TextColumn(
+                        "Extraction tag",
+                        ),
+                    "storage_tag": st.column_config.TextColumn(
+                        "Storage tag",
+                        )
+                },
                 key='mat_fields_edit_delta',
                 on_change=save_mat_fields
             )
@@ -1077,6 +1124,14 @@ def render_lib_compile():
                 st.session_state['txt_fields_edit_buffer'],
                 num_rows='dynamic',
                 key='txt_fields_edit_delta',
+                column_config={
+                    'storage_tag': st.column_config.TextColumn(
+                        'Storage tag'
+                        ),
+                    'massbank_tag': st.column_config.TextColumn(
+                        'MassBank tag'
+                        )
+                },
                 on_change=save_txt_fields
             )
             
@@ -1275,7 +1330,7 @@ def render_utilities():
             **DDA list generator**  
             For ThermoFisher XCalibur users.
             <br>Upload an output sheet from the mix module to generate XCalibur-format
-            mass inclusion lists for targeted data-dependent acquisition 
+            mass inclusion lists for data-dependent acquisition 
             <br>Separate .csv files are created for each mixture and mode
             """,
         unsafe_allow_html=True
@@ -1365,7 +1420,7 @@ def render_utilities():
             Data extraction from .mgf files (to .mat files) can be customized below.
             
             To extract data from additional user-defined .mgf-file fields, please entry the respective field
-            tag and a storage name in the editable frame below. <br>A list of baseline extracted data is given
+            tag and a storage name in the editable frame below. <br>A list of default extracted data is given
             in the table on the left.
             """,
             unsafe_allow_html=True
@@ -1398,13 +1453,29 @@ def render_utilities():
 
         with mapping_col:
             st.markdown('**Basic fields (.mgf data)**')
-            st.dataframe(static_df, use_container_width=True)
+            st.dataframe(static_df, use_container_width=True,
+                         column_config={
+                             "mgf_tag": st.column_config.TextColumn(
+                                 ".mgf tag",
+                                 ),
+                             "mat_tag": st.column_config.TextColumn(
+                                 ".mat tag",
+                                 )
+                         },)
 
         with empty_col:
             st.markdown('**Custom fields (.mgf data)**')
             st.data_editor(
                 st.session_state['mgf_fields'],
                 num_rows='dynamic',
+                column_config={
+                    "mgf_tag": st.column_config.TextColumn(
+                        ".mgf tag",
+                        ),
+                    "mat_tag": st.column_config.TextColumn(
+                        ".mat tag",
+                        )
+                },
                 key='mgf_fields_edit_delta',
                 on_change=save_mgf_fields
             )
@@ -1413,6 +1484,65 @@ def render_utilities():
             
     # end
 
+def render_hello():
+    # "header"
+    # "header"
+    st.image(
+        'static/logo.png',
+        width=360
+    )
+    st.caption('A web application for high-resolution tandem mass spectral library assembly')
+    
+    # main descriptive stuff --- old
+    #st.markdown(
+    #    """
+    #    Welcome to the Librarian web application!
+    #    \n
+    #    Librarian provides a customizable workflow for assembly of high-resolution 
+    #    tandem mass spectral records in the MassBank format directly in-browser.  
+    #    The three modules ___pcq___, ___mix___ and ___lib___ support batch query of chemical metadata,
+    #    distribution of compounds to mixtures for HRMS acquisition and (following data acquisition) library assembly, respectively.
+    #    \n
+    #    Complete source code for the web application is available via https://github.com/jahlwe/streamlit-librarian  
+    #    A command-line version of Librarian is available via https://github.com/jahlwe/cli-librarian
+    #    \n
+    #    For first-time users, a simple worked example of library assembly using Librarian is available under the readme sub-module.
+    #    
+    #    """
+    #)
+    
+    # main descriptive stuff --- old
+    st.markdown(
+        """
+        Welcome to the Librarian web application!
+        \n
+        Librarian is an open-access web application that helps you create and share high-quality MS² reference libraries for small-molecule mass spectrometry.  
+        The three modules ___pcq___, ___mix___ and ___lib___ bring metadata retrieval, mixture design and spectral record assembly together into a single,  
+        streamlined and customizable workflow, generating standardized records ready for deposition in repositories such as MassBank.
+        \n
+        """, unsafe_allow_html=True)
+        
+    st.image(
+        'static/homepagegraphic.svg',
+        width=1000
+    )
+    
+    st.markdown(
+        """
+        The Librarian modules are accessed via the menu on the left-hand side.  
+        Brief written use instructions are provided at the top of each respective module.  
+        For complete descriptions of functionality and use, see the associated publication:  
+        <i style="margin-left: 20px; display: inline-block;">
+            <a href="https://doi.org/10.21203/rs.3.rs-8766869/v1" target="_blank">
+                *Librarian: an open-access web application for high-resolution mass spectral library assembly*
+            </a>
+        </i>
+        \n
+        For first-time users, a simple worked example of library assembly using Librarian is available under the readme sub-module.
+        """, unsafe_allow_html=True)
+        
+    # end
+    
 def render_readme():
     # "header"
     st.image(
@@ -1421,47 +1551,31 @@ def render_readme():
     )
     st.caption('A web application for high-resolution tandem mass spectral library assembly')
     
-    # main descriptive stuff    
-    st.markdown(
-        """
-        Welcome to the Librarian web application!
-        \n
-        Librarian provides a customizable workflow for assembly of high-resolution 
-        tandem mass spectral records in the MassBank format directly in-browser.  
-        The three modules ___pcq___, ___mix___ and ___lib___ support batch query of chemical metadata,
-        distribution of compounds to mixtures for HRMS acquisition and (following data acquisition) library assembly, respectively.
-        \n
-        Complete source code for the web application is available via https://github.com/jahlwe/streamlit-librarian  
-        A command-line version of Librarian is available via https://github.com/jahlwe/cli-librarian
-        \n
-        For first-time users, a simple worked example of library assembly using Librarian is given below.
-        
-        """
-    )
-    
+    # main descriptive stuff --- defunct???
+
     # download zip with example data
-    with open('static/librarian_exampleData.zip', 'rb') as file:
-        example_data = st.download_button(
-            label='📦 Download example data (.zip)',
-            data=file.read(),
-            file_name='librarian_exampleData.zip',
-            mime='application/zip'
-        )
+    #with open('static/librarian_exampleData.zip', 'rb') as file:
+    #    example_data = st.download_button(
+    #        label='📦 Download example data (.zip)',
+    #        data=file.read(),
+    #        file_name='librarian_exampleData.zip',
+    #        mime='application/zip'
+    #    )
     
     # worked example image slider
     # ...
     guide_images = [
-        './static/guide1.PNG',
-        './static/guide2.PNG',
-        './static/guide3.PNG',
-        './static/guide4.PNG',
-        './static/guide5.PNG',
-        './static/guide6.PNG',
-        './static/guide7.PNG'
+        './static/guide1.svg',
+        './static/guide2.svg',
+        './static/guide3.svg',
+        './static/guide4.svg',
+        './static/guide5.svg',
+        './static/guide6.svg',
+        './static/guide7.svg'
     ]
     image_names = ['0','1','2','3','4','5','6']
     
-    slider_space, _ = st.columns([4,1])
+    slider_space, data_space, _ = st.columns([3,1,1])
     with slider_space:
         selected_idx = st.slider(
             'User guide',
@@ -1471,6 +1585,15 @@ def render_readme():
             step=1
             # format=... removed - not needed
         )
+    with data_space:
+        st.markdown("<br>", unsafe_allow_html=True)
+        with open('static/librarian_exampleData.zip', 'rb') as file:
+            example_data = st.download_button(
+                label='📦 Download example data (.zip)',
+                data=file.read(),
+                file_name='librarian_exampleData.zip',
+                mime='application/zip'
+            )
     
     img_space, _ = st.columns([4,1])    
     with img_space:
