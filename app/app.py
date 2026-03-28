@@ -32,7 +32,7 @@ from utils.pubchemUtilities import CTX_CHEM_PROPERTIES
 def app():
     st.set_page_config(page_title='Librarian', layout='wide',
                        page_icon='static/favicon.png')
-    st.logo('static/logo.png', size='large')
+    st.logo('static/logo_large.png', size='large')
     
     # --- MODULES ---
     st.sidebar.title('modules')
@@ -108,8 +108,8 @@ def render_pcq():
     st.caption('Batch query of chemical metadata via PubChem')
     
     # 260219; also parameters for pcq. Comptox?
-    #if st.button("⚙️ Parameters"):
-    #    st.session_state['show_pcq_param'] = not st.session_state.get('show_pcq_param', False)
+    if st.button("⚙️ Parameters"):
+        st.session_state['show_pcq_param'] = not st.session_state.get('show_pcq_param', False)
         
     if not st.session_state.get('show_pcq_param', False):
         st.markdown(
@@ -1488,7 +1488,7 @@ def render_hello():
     # "header"
     # "header"
     st.image(
-        'static/logo.png',
+        'static/logo_large.png',
         width=360
     )
     st.caption('A web application for high-resolution tandem mass spectral library assembly')
