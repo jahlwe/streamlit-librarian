@@ -115,7 +115,7 @@ def render_pcq():
         st.markdown(
             """
             - Query chemical metadata via __name__, __SMILES__ or __CAS__
-                - If a suitable entry is known beforehand, __CID__ queries are also supported
+                - If a suitable entry is known beforehand, __PubChem CID__ queries are also supported
             - Query inputs are supplied directly in-browser or by uploading a sheet (.csv, .xlsx)
             - No need for salt (i.e., **X HCl**) pre-cleaning – salts are recognized and parent compound (i.e., **X**) data retrieved instead
             - The `library_id` field is used to link chemical metadata to experimental data during library assembly
@@ -1518,7 +1518,7 @@ def render_hello():
         \n
         Librarian is an open-access web application that helps you create and share high-quality MS² reference libraries for small-molecule mass spectrometry.  
         The three modules ___pcq___, ___mix___ and ___lib___ bring metadata retrieval, mixture design and spectral record assembly together into a single,  
-        streamlined and customizable workflow, generating standardized records ready for deposition in repositories such as MassBank.
+        streamlined and customizable workflow, generating standardized records ready for deposition in repositories such as [MassBank](https://massbank.eu).
         \n
         """, unsafe_allow_html=True)
         
@@ -1546,7 +1546,7 @@ def render_hello():
 def render_readme():
     # "header"
     st.image(
-        'static/logo.png',
+        'static/logo_large.png',
         width=360
     )
     st.caption('A web application for high-resolution tandem mass spectral library assembly')
