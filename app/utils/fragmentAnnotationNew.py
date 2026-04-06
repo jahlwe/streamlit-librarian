@@ -24,7 +24,6 @@ from rdkit.Chem.Recap import RecapDecompose
 from itertools import islice, combinations
 import pandas as pd
 import copy
-from utils.MacFrag import MacFrag
 import csv
 import time
 from functools import partial
