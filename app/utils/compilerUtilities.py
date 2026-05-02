@@ -10,7 +10,7 @@ import glob
 import os
 import utils.genericUtilities as gu
 import utils.pubchemUtilities as pu
-import utils.classyfireUtilities as cu
+#import utils.classyfireUtilities as cu
 import utils.qcUtilities as qu
 import utils.fragmentAnnotationNew as fa
 import csv
@@ -424,49 +424,49 @@ def add_RTIData(dictionary, rti_dictionary):
 #dictionary = add_RTIData(dictionary, rti_dictionary)
 
 # FORGET ABOUT THIS FOR NOW - CLASSYFIRE SERVERS ARE DOWN.
-def query_ClassyFire(dictionary, use_ref_sheet=False, sheet_path=None, no_queries=False):
-    """
-    Not in use. Also --- redundant! MassBank (EU) automatically adds chemont data to new entries.
-    """
-    
-    n_compounds = len(dictionary.keys())
-    # this was added if we already have queried ClassyFire before and
-    # want to reuse that half-filled sheet.
-    if use_ref_sheet and sheet_path:
-        print(f'transferring class information from {sheet_path}')
-        ref_dictionary = gu.sheet_to_dict(sheet_path)
-        for compound in dictionary.keys():
-            if compound in ref_dictionary.keys() and ref_dictionary[compound]['class']:
-                print(ref_dictionary[compound]['class'])
-                dictionary[compound]['class'] = ref_dictionary[compound]['class']
-    
-    if not no_queries:
-        print(f'querying ClassyFire --- n = {n_compounds} compounds')
-        for i, compound in enumerate(dictionary.keys()):
-            print(compound)
-            if dictionary[compound]['CH$COMPOUND_CLASS:'] == None or str(dictionary[compound]['CH$COMPOUND_CLASS:']) == 'nan':
-                current_smiles = dictionary[compound]['CH$SMILES:']
-                print(current_smiles)
-                try:
-                    class_data = cu.get_classyfire(current_smiles)
-                    print(class_data)
-                    if class_data:
-                        dictionary[compound]['CH$COMPOUND_CLASS:'] = class_data
-                except:
-                    pass
-                
-                # DELAY TO AVOID HTTPERROR
-                time.sleep(10)
-                
-            # This is not helpful if queries are not being made for every compound
-            # Move it outside the conditional and it's always helpful.
-            if i % 10 == 0 and i != 0:
-                print(f'processed {i} of {n_compounds} compounds')
-                if i == n_compounds - 1:
-                    print('processed {i+1} of {n_compounds} compounds')
-                    print('done')
-            
-    return dictionary
+#def query_ClassyFire(dictionary, use_ref_sheet=False, sheet_path=None, no_queries=False):
+#    """
+#    Not in use. Also --- redundant! MassBank (EU) automatically adds chemont data to new entries.
+#    """
+#    
+#    n_compounds = len(dictionary.keys())
+#    # this was added if we already have queried ClassyFire before and
+#    # want to reuse that half-filled sheet.
+#    if use_ref_sheet and sheet_path:
+#        print(f'transferring class information from {sheet_path}')
+#        ref_dictionary = gu.sheet_to_dict(sheet_path)
+#        for compound in dictionary.keys():
+#            if compound in ref_dictionary.keys() and ref_dictionary[compound]['class']:
+#                print(ref_dictionary[compound]['class'])
+#                dictionary[compound]['class'] = ref_dictionary[compound]['class']
+#    
+#    if not no_queries:
+#        print(f'querying ClassyFire --- n = {n_compounds} compounds')
+#        for i, compound in enumerate(dictionary.keys()):
+#            print(compound)
+#            if dictionary[compound]['CH$COMPOUND_CLASS:'] == None or str(dictionary[compound]['CH$COMPOUND_CLASS:']) == 'nan':
+#                current_smiles = dictionary[compound]['CH$SMILES:']
+#                print(current_smiles)
+#                try:
+#                    class_data = cu.get_classyfire(current_smiles)
+#                    print(class_data)
+#                    if class_data:
+#                        dictionary[compound]['CH$COMPOUND_CLASS:'] = class_data
+#                except:
+#                    pass
+#                
+#                # DELAY TO AVOID HTTPERROR
+#                time.sleep(10)
+#                
+#            # This is not helpful if queries are not being made for every compound
+#            # Move it outside the conditional and it's always helpful.
+#            if i % 10 == 0 and i != 0:
+#                print(f'processed {i} of {n_compounds} compounds')
+#                if i == n_compounds - 1:
+#                    print('processed {i+1} of {n_compounds} compounds')
+#                    print('done')
+#            
+#    return dictionary
 
 #dictionary = add_compoundClasses(dictionary, True, 'output/compiler/classref_pos.xlsx', True)
 #dictionary = add_compoundClasses(dictionary, True, 'output/compiler/classref_neg.xlsx', True)
