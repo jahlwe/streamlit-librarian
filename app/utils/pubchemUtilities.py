@@ -105,6 +105,28 @@ def special_pcp_metadata(compound_cid):
             lambda l: next((i for i in l if i.get('SourceName') == 'CAS Common Chemistry'), {}), 
             'SourceID'])
         
+        # if not found, try here
+        if not cas_number:
+            cas_number = gu.deep_get(data, [
+                'Record',
+                'Section',
+                lambda l: next((i for i in l if i.get('TOCHeading') == 'Names and Identifiers'), {}),
+                'Section',
+                lambda l: next((i for i in l if i.get('TOCHeading') == 'Other Identifiers'), {}),
+                'Section',
+                lambda l: next((i for i in l if i.get('TOCHeading') == 'CAS'), {}),
+                'Information',
+                0,
+                'Value',
+                'StringWithMarkup',
+                0,
+                'String'
+            ])
+            
+        # also check if it is a string with only numbers and -'s?
+        if cas_number and not all(c.isdigit() or c == '-' for c in cas_number):
+            cas_number = None
+        
         comptox_url = gu.deep_get(data, [
             'Record',
             'Reference',
@@ -195,9 +217,6 @@ def get_DTXSID(chem_instance, data):
             return dtxsid, ctx_cas
     except:
         return None
-
-def query_comptox():
-    pass
     
 # we need to initialize these to make sure our re-query stuff works as it should
 # just for... proper bookkeeping.
