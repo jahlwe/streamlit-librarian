@@ -11,7 +11,7 @@ import os
 import utils.genericUtilities as gu
 import utils.pubchemUtilities as pu
 #import utils.classyfireUtilities as cu
-import utils.qcUtilities as qu
+#import utils.qcUtilities as qu
 import utils.fragmentAnnotationNew as fa
 import csv
 import pandas as pd
@@ -127,6 +127,18 @@ def get_charge(adduct):
         return sign * number
     return 0 # if no charge 
 
+def normalize_peaks(peak_list):
+    '''
+    Takes a list of (mz, raw intensity) pairs and returns
+    a list with (mz, raw, normalized intensity) values
+    
+    Normalized intensities are scaled to the base peak intensity
+    '''
+    if not peak_list:
+        return []
+    base_peak_int = max(intensity for mz, intensity in peak_list)
+    return [(mz, intensity, int((intensity / base_peak_int)*999)) for mz, intensity in peak_list]
+
 # Functions for dealing with MS-DIAL .mat-files
 def parse_matFile(
         file_path, 
@@ -195,7 +207,7 @@ def parse_matFile(
                     reading_peaks = False
                     current_record['ms2_data'] = peak_data
                     if normalize_ms2 and peak_data:
-                        current_record['ms2_norm'] = qu.normalize_peaks(peak_data)
+                        current_record['ms2_norm'] = normalize_peaks(peak_data)
                     current_record['base_peak'] = round(max(peak_data, key=lambda x: x[1])[0], 5)
     # add records
     # EXTRA MODE VALIDATION!

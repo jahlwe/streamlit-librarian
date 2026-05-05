@@ -199,7 +199,6 @@ def generate_subformulas(data, ppm_tol=10):
         current_formula = regenerate_formula_hill(current)
         is_parent = current_formula == molecular_ion_formula
         
-        # Do this...? To avoid some obvious boo-boos.
         def plausible_loss(current, parent_atoms):
             diff = {}
             all_elems = set(parent_atoms) | set(current)
