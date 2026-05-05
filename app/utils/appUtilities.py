@@ -14,7 +14,7 @@ import os
 import utils.genericUtilities as gu
 import utils.pubchemUtilities as pu
 import utils.compilerUtilities as cu
-import utils.qcUtilities as qu
+#import utils.qcUtilities as qu
 import utils.fragmentAnnotationNew as fa
 import csv
 import pandas as pd
@@ -362,7 +362,7 @@ def parse_matFile_app(
                     reading_peaks = False
                     current_record['ms2_data'] = peak_data
                     if normalize_ms2 and peak_data:
-                        current_record['ms2_norm'] = qu.normalize_peaks(peak_data)
+                        current_record['ms2_norm'] = cu.normalize_peaks(peak_data)
                     current_record['base_peak'] = round(max(peak_data, key=lambda x: x[1])[0], 5)
     
     # add records
