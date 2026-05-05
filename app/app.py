@@ -18,7 +18,7 @@ import pandas as pd
 import io
 import matplotlib.pyplot as plt
 import zipfile
-import rarfile
+#import rarfile
 import filetype
 import csv
 import copy
