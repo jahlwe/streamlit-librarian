@@ -334,8 +334,8 @@ def mixture_stats(working_sheet, save_path = 'output/', streamlit=False):
         new_row.at[0, 'max_expectedMass'] = group_data['expected_mz_pos'].max()
         new_row.at[0, 'min_xlogp'] = group_data['xlogp'].min()
         new_row.at[0, 'max_xlogp'] = group_data['xlogp'].max()
-        new_row.at[0, 'min_diff_expectedMass'] = np.min(np.diff(np.sort(group_data['expected_mz_pos'])))
-        new_row.at[0, 'min_diff_xlogp'] = np.min(np.diff(np.sort(group_data['xlogp'])))
+        new_row.at[0, 'min_diff_expectedMass'] = np.min(np.diff(np.sort(group_data['expected_mz_pos']))) if len(group_data) > 2 else np.nan
+        new_row.at[0, 'min_diff_xlogp'] = np.min(np.diff(np.sort(group_data['xlogp']))) if len(group_data) > 2 else np.nan
         mixture_stats = pd.concat([mixture_stats, new_row], ignore_index=True)
     # Save it
     if not streamlit:

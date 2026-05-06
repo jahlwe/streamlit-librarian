@@ -406,8 +406,8 @@ def pcQueries(query_dict, query_empty_only=True,
             # need to make sure pcq_out will contain all query input types
             # in a list, even for those that didn't make the query
             print(f'{type(e).__name__} while querying {query_input}, exiting')
-            fname = 'output/pcq_intermediate'
-            gu.dict_to_sheet(pcq_out, fname)
+            #fname = 'output/pcq_intermediate'
+            #gu.dict_to_sheet(pcq_out, fname)
             break
 
         if (i + 1) % 5 == 0 and idx != 0:
