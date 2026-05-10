@@ -26,7 +26,8 @@ import plotly.graph_objects as go
 from rdkit import Chem
 from rdkit.Chem import Draw
 from PIL import Image
-from utils.pubchemUtilities import CTX_CHEM_PROPERTIES
+# from utils.pubchemUtilities import CTX_CHEM_PROPERTIES
+from utils.pubchemUtilities import CTX_PROPNAMES_MAP
 
 # streamlit
 def app():
@@ -376,6 +377,9 @@ def render_pcq():
                 if st.session_state['pcq_output']:
                     st.download_button('download results', st.session_state['pcq_output'].getvalue(),
                                        file_name='pcq_out.csv')
+                    # idea from SP --- show the results in a dataframe?
+                    st.dataframe(gu.idx_dict_to_sheet(st.session_state['pcq_dict'], return_pandas_df=True))
+                    
     else:
         # ---------- PARAMS ----------
         for key in ['use_comptox', 'ctx_api_key']:
@@ -384,7 +388,7 @@ def render_pcq():
                 
         # need to keep track of user data retrieval selection
         if 'ctx_query_specs' not in st.session_state:
-            st.session_state['ctx_query_specs'] = {prop: False for prop in CTX_CHEM_PROPERTIES}
+            st.session_state['ctx_query_specs'] = {prop: False for prop in CTX_PROPNAMES_MAP.keys()}
         
         #print(st.session_state['comptox_api_key'])
         #print(st.session_state['ctx_query_specs'])
@@ -435,13 +439,14 @@ def render_pcq():
                 
                 # --- CHECKBOXES ---
                 cols = st.columns(3)
-                for i, prop in enumerate(CTX_CHEM_PROPERTIES):
+                # Using our new mapping now...
+                for i, prop in enumerate(CTX_PROPNAMES_MAP.keys()):
                     col_idx = i % 3
                     with cols[col_idx]:
                         #st.caption(f'{prop}')
                         st.markdown(f"""
                             <div style="font-size: 0.775rem; color: black; margin-bottom: 0.5rem;">
-                                {prop}
+                                {CTX_PROPNAMES_MAP[prop]}
                             </div>
                             """, unsafe_allow_html=True
                         )

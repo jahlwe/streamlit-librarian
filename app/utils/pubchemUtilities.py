@@ -18,7 +18,7 @@ from datetime import datetime
 import json
 import math
 import copy
-import ctxpy as ctx
+# import ctxpy as ctx
 
 BASE_URL = "https://pubchem.ncbi.nlm.nih.gov/rest/pug_view/data"
 ENDPOINT_TEMPLATE = f"{BASE_URL}/compound/{{compound_cid}}/JSON"
@@ -218,6 +218,150 @@ def get_DTXSID(chem_instance, data):
     except:
         return None
     
+# ---------- WE NEED A NEW SOLUTION FOR COMPTOX ----------
+# 260510 --- Temporarily or for longer term, ctxpy does not seem to resolve
+# most of the properties anymore via the Chemical details path. 
+
+CTX_BASE = 'https://comptox.epa.gov/ctx-api'
+
+CTX_PROPNAMES_MAP = {
+    # modelName: 'storageName' (on our end)
+    # Variable data is stored inside propValue in the respective dict
+    'TEST_TP_IGC50': '48H_T_Pyriformis_IGC50_TEST',
+    'TEST_FHM_LC50': '96H_FatheadMinnow_LC50_TEST',
+    'ACD_LogP_Consensus': 'LogKow_Percepta',
+    'TEST_DM_LC50': '48H_D_Magna_LC50_TEST',
+    'OPERA_PKA_A': 'pKa_A_Opera',
+    'ACD_pKa_Apparent_MA': 'pKa_A_Percepta',
+    'TEST_Mutagenicity': 'Ames_Mutagenicity_TEST',
+    'OPERA_CoMPARA-Agonist': 'AR_Agonist_Opera',
+    'OPERA_CoMPARA-Antagonist': 'AR_Antagonist_Opera',
+    'OPERA_CoMPARA-Binding': 'AR_Binding_Opera',
+    'TEST_V': 'Viscosity_TEST',
+    'OPERA_PKA_B': 'pKa_B_Opera',
+    'TEST_BCF': 'BioconcentrationFactor_TEST',
+    'ACD_BP': 'BoilingPoint_Percepta',
+    'TEST_BP': 'BoilingPoint_TEST',
+    'OPERA_CACO2': 'Caco2Permeability_Opera',
+    'ACD_Prop_Density': 'Density_Percepta',
+    'TEST_D': 'Density_TEST',
+    'ACD_Prop_Dielectric_Constant': 'DielectricConstant_Percepta',
+    'OPERA_CERAPP-Agonist': 'ERa_Agonist_Opera',
+    'OPERA_CERAPP-Antagonist': 'ERa_Antagonist_Opera',
+    'TEST_DevTox': 'DevelopmentalToxicity_TEST',
+    'OPERA_CERAPP-Binding': 'ERa_Binding_Opera',
+    'ACD_FP': 'FlashPoint_Percepta',
+    'TEST_FP': 'FlashPoint_TEST',
+    'OPERA_FUB': 'UnboundFraction_HumanPlasma_Opera',
+    'OPERA_Clint': 'IntrinsicClearance_HumanHepatic_Opera',
+    'ACD_Prop_Index_Of_Refraction': 'RefractiveIndex_Percepta',
+    'OPERA_RT': 'LC_RetentionTime_Opera',
+    'OPERA_LOGD_PH_5_5': 'LogD_pH5.5_Opera',
+    'ACD_LogD_5_5': 'LogD_pH5.5_Percepta',
+    'OPERA_LOGD_PH_7_4': 'LogD_pH7.4_Opera',
+    'ACD_LogD_7_4': 'LogD_pH7.4_Percepta',
+    'TEST_MP': 'MeltingPoint_TEST',
+    'ACD_Prop_Molar_Refractivity': 'MolarRefractivity_Percepta',
+    'ACD_Prop_Molar_Volume': 'MolarVolume_Percepta',
+    'TEST_Rat_LD50': 'Oral_Rat_LD50_TEST',
+    'ACD_Prop_Polarizability': 'Polarizability_Percepta',
+    'ACD_Prop_Surface_Tension': 'SurfaceTension_Percepta',
+    'TEST_ST': 'SurfaceTension_TEST',
+    'TEST_TC': 'ThermalConductivity_TEST',
+    'ACD_VP': 'VaporPressure_Percepta',
+    'TEST_VP': 'VaporPressure_TEST',
+    'ACD_SolInPW': 'WaterSolubility_Percepta',
+    'TEST_WS': 'WaterSolubility_TEST',
+    'OPERA_AOH': 'AtmosphericHydroxylationRate_Opera',
+    'OPERA_BCF': 'BioconcentrationFactor_Opera',
+    'OPERA_BioDeg': 'BiodegradationHalfLife_Opera',
+    'OPERA_BP': 'BoilingPoint_Opera',
+    'OPERA_KM': 'FishBiotransformationHalfLife_km_Opera',
+    'OPERA_HL': 'HenryVolatilityConstant_Opera',
+    'OPERA_LogKOA': 'LogKoa_Opera',
+    'OPERA_LogP': 'LogKow_Opera',
+    'OPERA_MP': 'MeltingPoint_Opera',
+    'OPERA_CATMoS-LD50': 'Oral_Rat_LD50_Opera',
+    'OPERA_RBioDeg': 'ReadyBinaryBiodegradability_Opera',
+    'OPERA_KOC': 'SoilAdsorptionCoefficient_Opero',
+    'OPERA_VP': 'VaporPressure_Opera',
+    'OPERA_WS': 'WaterSolubility_Opera'
+}
+
+def get_comptox_properties(
+        dtxsid: str,
+        api_key: str,
+        prop_map: dict = CTX_PROPNAMES_MAP,
+) -> dict:
+    """
+    Replacement for previous ctxpy functions.
+    Retrieves predicted properties from the CTX API.
+    """
+    url = f'{CTX_BASE}/chemical/property/predicted/search/by-dtxsid/{dtxsid}'
+    headers = {'x-api-key': api_key, 'accept': 'application/json'}
+
+    try:
+        response = requests.get(url, headers=headers, timeout=15)
+        if response.status_code == 404:
+            print(f'get_comptox_properties: DTXSID {dtxsid!r} not found')
+            return {}
+        response.raise_for_status()
+        raw = response.json()
+    except requests.exceptions.Timeout:
+        print(f'get_comptox_properties: request timed out for {dtxsid!r}')
+        return {}
+    except requests.exceptions.RequestException as e:
+        print(f'get_comptox_properties: request error for {dtxsid!r} — {e}')
+        return {}
+
+    # Initialize all props as None...
+    result = {storage: None for storage in prop_map.keys()}
+    #print(result)
+
+    # The response is a list of dicts for the different props
+    # We pick them out via modelName variables, taken from the prop_map keys
+    if not isinstance(raw, list):
+        print(f'get_comptox_properties: unexpected response type for {dtxsid!r} — {type(raw)}')
+        return result
+
+    for item in raw:
+        #print(item)
+        model_name = item.get('modelName')
+        if model_name in prop_map:
+            # DONT convert here, lets do it later
+            result[model_name] = item.get('propValue')
+    
+    #print(result)
+    return result
+
+# get_comptox_properties('DTXSID2023270', '0c5e2d7b-b651-4a21-a798-98d853dc9859')
+
+def search_comptox_raw(identifier: str, api_key: str) -> dict:
+    """
+    Sends a request to the CTX API to find DTXSIDs.
+    SMILES or CAS should be used as identifiers.
+    """
+    url = f'{CTX_BASE}/chemical/search/equal/{requests.utils.quote(identifier)}'
+    headers = {'x-api-key': api_key, 'accept': 'application/json'}
+
+    try:
+        response = requests.get(url, headers=headers, timeout=15)
+        if response.status_code == 404:
+            print(f'search_comptox_raw: no match for {identifier!r}')
+            return {}
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.Timeout:
+        print(f'search_comptox_raw: request timed out for {identifier!r}')
+        return {}
+    except requests.exceptions.RequestException as e:
+        print(f'search_comptox_raw: request error for {identifier!r} — {e}')
+        return {}
+    
+# search_comptox_raw('375-73-5', '0c5e2d7b-b651-4a21-a798-98d853dc9859')[0].get('dtxsid')
+
+# ------------------ QUERIES ------------------
+    
 # we need to initialize these to make sure our re-query stuff works as it should
 # just for... proper bookkeeping.
 ALL_PCQ_FIELDS = [
@@ -379,24 +523,31 @@ def pcQueries(query_dict, query_empty_only=True,
             pcq_out[idx]['library_id'] = library_id if library_id else pcq_out[idx]['name']
             
             # ---------- query comptox HERE? ---------- 
-            if query_comptox and api_key and ctx_query_specs:
-                # we will probably always initiate a Chemical instance
-                chem_instance = ctx.Chemical(x_api_key=api_key)
-                
+            if query_comptox and api_key and ctx_query_specs:   
                 # use dtxsid from pubchem if we have it
                 dtxsid = pcq_out[idx].get('comptoxURL', None)
                 # if not...
                 if not dtxsid:
-                    dtxsid, cas = get_DTXSID(chem_instance, pcq_out[idx])
+                    # try w SMILES first
+                    dtx_q = search_comptox_raw(pcq_out[idx]['smiles'], api_key)
+                    dtxsid = dtx_q[0].get('dtxsid', None)
+                    if not dtxsid:
+                        dtx_q = search_comptox_raw(pcq_out[idx]['cas'], api_key)
+                        dtxsid = dtx_q[0].get('dtxsid', None)
 
                 if dtxsid:
-                    # for now, we only get chem.details stuff
                     try:
-                        ctx_data = chem_instance.details(by='dtxsid',query=dtxsid)
+                        #print(dtxsid)
+                        #print(api_key)
+                        #print(ctx_query_specs)
+                        ctx_data = get_comptox_properties(dtxsid, api_key)
                         if ctx_data:
+                            #print(ctx_data)
                             for prop in ctx_query_specs:
                                 if prop in ctx_data:
-                                    pcq_out[idx][prop] = ctx_data[prop]
+                                    # Variable names are already re-mapped
+                                    # by the get_comptox_properties function
+                                    pcq_out[idx][CTX_PROPNAMES_MAP[prop]] = ctx_data[prop]
                     except:
                         pass
                 

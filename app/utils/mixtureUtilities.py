@@ -384,7 +384,7 @@ def visual_summary(dictionary, group_key='assignedMixture', mz_key='monoisotopic
         sizes = np.full_like(sizes, 10)
 
     fig, ax = plt.subplots(figsize=(9, 6))
-    ax.scatter(masses, groups, s=sizes, c=xlogp_shifted, cmap='cividis_r', alpha=0.7, edgecolors='k', linewidth=0.5)
+    ax.scatter(masses, groups, s=sizes, c=groups, cmap='cividis_r', alpha=0.7, edgecolors='k', linewidth=0.5)
 
     ax.set_xlabel('Monoisotopic mass (Da)', fontsize=12)
     ax.set_ylabel('Mixture', fontsize=12)
@@ -436,7 +436,7 @@ def visual_summary(dictionary, group_key='assignedMixture', mz_key='monoisotopic
     )
     
     ax.set_title(
-        'Dot scale and color by xlogp',
+        'Dot sizing by xlogP',
         fontsize=10,
         fontweight='normal',
         loc='center'

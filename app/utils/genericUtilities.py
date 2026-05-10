@@ -285,7 +285,8 @@ def sheet_to_idx_dict(sheet):
 # to indexing by name or ID.
 
 def idx_dict_to_sheet(
-    dictionary, file_name=None, fmat='.csv', buffer=None
+    dictionary, file_name=None, fmat='.csv', buffer=None,
+    return_pandas_df=False
 ):
     """
     Modified version of dict-to-sheet fn, needed for the initial Librarian module.
@@ -308,6 +309,9 @@ def idx_dict_to_sheet(
         cols.remove('library_id')
         cols = ['library_id'] + cols
         out_sheet = out_sheet[cols]
+        
+    if return_pandas_df:
+        return out_sheet
     
     # dealing with files through streamlit 
     if buffer is not None:
