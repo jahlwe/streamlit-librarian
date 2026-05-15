@@ -308,7 +308,7 @@ def distribute_compounds(
             dictionary[compound]['assignedMixture'] = int(working_sheet['assignedMixture'].iloc[k])
     return dictionary, working_sheet
 
-def mixture_stats(working_sheet, save_path = 'output/', streamlit=False):
+def mixture_stats(working_sheet, save_path = '', streamlit=False):
     """
     Function to generate basic statistics that describe the mixture assignment results.
         
@@ -342,6 +342,7 @@ def mixture_stats(working_sheet, save_path = 'output/', streamlit=False):
         mixture_stats = mixture_stats.set_index('mixture')
         file_name = str(save_path + 'mixtureStats.xlsx')
         mixture_stats.to_excel(file_name)
+        return None
     if streamlit:
         mixture_stats = mixture_stats.set_index('mixture')
         return mixture_stats

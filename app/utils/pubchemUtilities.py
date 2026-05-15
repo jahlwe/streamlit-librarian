@@ -18,6 +18,7 @@ from datetime import datetime
 import json
 import math
 import copy
+import ast
 # import ctxpy as ctx
 
 BASE_URL = "https://pubchem.ncbi.nlm.nih.gov/rest/pug_view/data"
@@ -571,22 +572,142 @@ def pcQueries(query_dict, query_empty_only=True,
             
     return pcq_out
         
+# -------------------- CLI SUPPORT --------------------
+# no longer doing a separate CLI-version
+# instead, add necessary functions and let the CLI call them
+# ....
+
+def pcQueries_CLI(query_dict, query_empty_only=True, progress_callback=None):
+    pcq_out = {} # create a dictionary to store data in an organized format
+    requery_dict = {} # initialize, in case its needed
+    # we need to look at the input sheet --- 
+    # is it a template, or is it a pcq output being re-queried.,
+    if any('queried_at' in data for data in query_dict.values()):
+        pcq_out = copy.deepcopy(query_dict) # if it is an 'output' input, we can fill the pcq_out with that
+        # build requery dictionary
+        for idx, data in query_dict.items():
+            if not data.get('queried_at'): # find entries that lack data  
+                query_tuple_str = data.get('queried_as') # get new query stuff
+                query_tuple = ast.literal_eval(query_tuple_str) # need this
+                if query_tuple:
+                    query_input, query_type_suffix = query_tuple[0], query_tuple[1]
+                    query_type = f'{query_type_suffix}_q'
+                    library_id = data.get('library_id')
+                    requery_dict[idx] = {query_type: query_input,
+                                         'library_id': library_id if library_id else idx}
+    else:
+        pass
+                
+    if requery_dict: # if the requery_dict actually contains anything
+    # it should replace the query dict for what happens below.
+    # since we have already moved already present data over to pcq_out, we should be good
+        query_dict = copy.deepcopy(requery_dict)
+        n_compounds = len(query_dict.keys())
+        print(f'running (re-)pcq for {n_compounds} compounds')
+    else:
+        n_compounds = len(query_dict.keys())
+        print(f'running pcq for {n_compounds} compounds')
+    
+    # assume a query_dict structure key = number, data = query inputs
+    for i, (idx, data) in enumerate(query_dict.items()):
+        pc_data = None # initialize pc_data
+        pcq_out[idx] = {} # initialize dict entry for query
+        name_q, smiles_q, cid_q, cas_q = data.get('name_q'), data.get('smiles_q'), data.get('cid_q'), data.get('cas_q')
+        # hierarchy of input types --- prioritize cid, then name, then smiles
+        query_input = cid_q if cid_q else name_q if name_q else smiles_q if smiles_q else cas_q
+        query_type = 'cid' if cid_q else 'name' if name_q else 'smiles' if smiles_q else 'cas' if cas_q else None
+        
+        # if we are querying with a name, clean it
+        if name_q and not cid_q:
+            query_input = nameCleaner(name_q) if str(name_q) != 'nan' else name_q
+        
+        # hmm... think about this one.
+        # we actually don't get to this point because of how we generate  our query 
+        # input dictionary (only stuff without data is included) in the app, but whatever
+        if not gu.is_empty(data.get('queried_at')) and query_empty_only:
+            continue
+        
+        # little sidestep to deal with cas inputs. we get the CID, and change the query type.
+        if query_type == 'cas' and cas_q:
+            cas_from_cid = casQuery_getCID(cas_q)
+            if cas_from_cid and str(cas_from_cid).isdigit():
+                query_input, query_type = cas_from_cid, 'cid'
+            else:
+                query_input, query_type = None
+        
+        # now helper function for querying
+        try:
+            pc_data = pcQuery_expanded(query_input, query_type)
+            if not pc_data:
+                print(f'no pubchem entry found --- input: [{query_input}], type: [{query_type}]')
+                pcq_out[idx] = {'queried_as': (query_input, query_type)}
+                # give it a library id nonetheless
+                library_id = data.get('library_id')
+                pcq_out[idx]['library_id'] = library_id if library_id else idx
+                continue
+            
+            # store query information
+            pcq_out[idx]['queried_as'] = (query_input, query_type)
+            pcq_out[idx]['queried_at'] = datetime.now().strftime('%H:%M:%S %d/%m/%Y')
+            
+            # synonyms
+            current_synonyms = safe_getattr(pc_data, 'synonyms', [])
+            pcq_out[idx]['synonyms'] = [v.lower() for v in current_synonyms if not re.match(
+                r'^(?=.*\d)(?=.*[A-Z\W])[\dA-Z\W]+$', v)]
+            
+            # others - now with helper
+            for attr, key, default, *cast in FIELDS:
+                pcq_out[idx][key] = safe_getattr(pc_data, attr, default, *cast)
+            
+            # 250713 --- pubchem is messing around with SMILES.
+            # it is none in pcp-objects. temporary solution:
+            smiles_list = [
+                i.get('value').get('sval') for i in pc_data.to_dict().get('record').get('props') if i['urn']['label'] == 'SMILES' and i['urn']['name'] == 'Absolute'
+            ]
+            pcq_out[idx]['smiles'] = smiles_list[0] if smiles_list else None
+            
+            # use CID for special requests
+            cid = pcq_out[idx].get('pubchemCID')
+            
+            if cid:
+                try:
+                    special_results = special_pcp_metadata(cid)
+                    if special_results:
+                        pcq_out[idx].update(special_results)
+                except Exception:
+                    pass
+                
+            # decide library_id: prefer explicit field, fall back to dict key (not PubChem name)
+            library_id = data.get('library_id')
+            pcq_out[idx]['library_id'] = library_id if library_id else idx
+
+        except Exception as e:
+            print(f'{type(e).__name__} while querying {query_input}, exiting')
+            fname = 'output/pcq_intermediate'
+            gu.dict_to_sheet(pcq_out, fname)
+            break
+        if (i + 1) % 5 == 0 and i != 0:
+            print(f'processed {i+1} of {n_compounds} compounds')
+        if i == n_compounds - 1:
+            print(f'processed {i+1} of {n_compounds} compounds')
+            print('done')
+        if progress_callback: # for streamlit...
+            progress_callback(i + 1, n_compounds, query_input)
+    
+    return pcq_out
+
 #rq_test = gu.sheet_to_dict('output/testReQuery.csv')
 #rq_test = reQuery_CID(rq_test)
-
 #cpd = pcp.get_compounds(5904, 'cid')
 #cpd_data = cpd[0]
 #rq_test['Bephenium hydroxynaphthoate']
-
 #dictionary = genericUtilities.sheet_to_dict('input/compoundList_short.xlsx')
 #dictionary = gu.sheet_to_dict('input/compoundList.xlsx')
 #dictionary = genericUtilities.sheet_to_dict('input/compoundListTest.xlsx')
 #dictionary = prepOne_pcQueries(dictionary)
 #gu.dict_to_sheet(dictionary, 'testOutput')
-
 # nameCleaner
 #nameCleaner_special('Nonadecanoic acid methyl ester; GC-EI-TOF; MS; 0 TMS; BP')
 #nameCleaner('(+)-Levobunolol')
 #nameCleaner('(+)-Levobunolol')
-
 #dictionary = gu.sheet_to_dict('output/pcq_out.csv')

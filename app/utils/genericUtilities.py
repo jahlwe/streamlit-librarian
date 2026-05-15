@@ -15,6 +15,7 @@ import os
 import re
 import math
 import io
+from pathlib import Path
 
 def is_empty(val):
     """
@@ -157,7 +158,6 @@ def sheet_to_dict(sheet, preferred_key='library_id'):
                     sub_dict[col] = convert_value(val)
             else:
                 sub_dict[col] = convert_value(val)
-        sub_dict['keyColumn'] = key_column
         dictionary[key] = sub_dict
         
     return dictionary
@@ -166,7 +166,7 @@ def sheet_to_dict(sheet, preferred_key='library_id'):
 #test = sheet_to_dict('output/prepTwoSheet.xlsx', 'vendorName')
 #dictionary = sheet_to_dict('output/pcq_out.csv')
 
-def dict_to_sheet(dictionary, file_name=None, fmat='.csv', buffer=None):
+def dict_to_sheet(dictionary, save_path=None, fmat='.csv', buffer=None):
     """
     Creates a spreadsheet (.csv, .xlsx) from a dictionary.
     Output files created in chosen directories (CLI) or as downloadables (web-app)
@@ -180,15 +180,13 @@ def dict_to_sheet(dictionary, file_name=None, fmat='.csv', buffer=None):
     if not dictionary:
         print('input dictionary is empty')
         return None
-    # get the key column name
-    first_item = next(iter(dictionary.values()))
-    key_column = first_item.get('keyColumn', 'key')
-    # convert to dataframe, get rid of key column
+    # always use library_id as the index column
+    key_column = 'library_id'
+    # convert to dataframe, clean up any stale metadata columns and legacy key columns
     out_sheet = pd.DataFrame.from_dict(dictionary, orient='index')
-    if key_column in out_sheet.columns:
-        out_sheet = out_sheet.drop(columns=[key_column])
-    elif 'key' in out_sheet.columns:
-        out_sheet = out_sheet.drop(columns=['key'])
+    for col in ['library_id', 'keyColumn', 'key']:
+        if col in out_sheet.columns:
+            out_sheet = out_sheet.drop(columns=[col])
     # organize columns
     out_sheet = out_sheet.reset_index().rename(columns={'index': key_column})    
     cols = [key_column] + [col for col in out_sheet.columns if col != key_column]
@@ -205,18 +203,17 @@ def dict_to_sheet(dictionary, file_name=None, fmat='.csv', buffer=None):
             return None
         buffer.seek(0)
         return buffer
-    else:
-        os.makedirs('output', exist_ok=True)
-        save_path = os.path.join('output', file_name + fmat)
-        
+    else:        
         try:
-            if fmat == '.csv':
-                out_sheet.to_csv(save_path, index=False)
-            elif fmat in ['.xlsx', '.xls']:
-                out_sheet.to_excel(save_path, index=False)
+            # use this
+            p = Path(save_path)
+            if p.suffix.lower() == '.csv':
+                # cut out the file format
+                out_sheet.to_csv(p, index=False)
+            elif p.suffix.lower() in ('.xlsx', '.xls'):
+                out_sheet.to_excel(p, index=False)
             else:
-                print("unsupported format, use .csv or .xlsx")
-                return None
+                raise ValueError('unsupported file type')
             print(f"{save_path} saved.")
         except Exception as e:
             print(f"failed to save file: {e}")

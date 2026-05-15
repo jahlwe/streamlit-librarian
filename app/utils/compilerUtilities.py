@@ -222,7 +222,7 @@ def parse_matFile(
     return dictionary
 
 # We have to do one mode at a time. Basically. Dictionary key issues.
-def gather_matData(mode, folder_path='input/mat'):
+def gather_matData(mode, data_dir):
     """
     Helper, uses parse_matFile fn to gather data from all provided .mat files.
     """
@@ -232,7 +232,7 @@ def gather_matData(mode, folder_path='input/mat'):
         raise ValueError('Invalid mode provided.')
     mat_dictionary = {}
     # This should work to look in all subdirectories
-    mat_files = glob.glob(os.path.join(folder_path, '**/*.mat'), recursive=True)
+    mat_files = glob.glob(os.path.join(data_dir, '**/*.mat'), recursive=True)
     mode_filtered_files = [file for file in mat_files if f"/{mode}/" in file.replace("\\", "/")]
     
     for i, file in enumerate(mode_filtered_files):
@@ -309,9 +309,9 @@ def add_chemical_metadata(dictionary, ref_dictionary):
 
 #dictionary = add_chemical_metadata(dictionary, ref_dictionary)
 
-def add_manual_metadata(dictionary, manual_metadata='files/compiler/manual_metadata.tsv'):
+def add_manual_metadata(dictionary, tsv_path):
     """
-    Function to add manually provided instrumental metadata to the compilation dictionary.
+    Function to add manually provided metadata to the compilation dictionary.
     This data is provided by the user in a separate .tsv file.
     
     Parameters & args:
@@ -323,20 +323,17 @@ def add_manual_metadata(dictionary, manual_metadata='files/compiler/manual_metad
     """
     
     manual_dictionary = {}
-    with open(manual_metadata, 'r', newline='', encoding='utf-8') as m:
+    with open(tsv_path, 'r', newline='', encoding='utf-8') as m:
         reader = csv.reader(m, delimiter='\t')
         for key, value in reader:
             manual_dictionary[key] = value
     for compound in dictionary:
-        # do this to ensure we dont overwrite data that is already provided?
-        # e.g. we might have 'resolution' from a given .mat file, and should not 
-        # overwrite that with a general value that might apply to the rest of the dataset
-        # is there a risk we allow missing values to remain missing?
-        # shouldnt be, because we are not working from a .csv file at 
-        # this point, if a given .mat file has tag data but another one doesnt,
-        # the first will have tag = value and the other will not have that tag
-        manual_uniques = {k: v for k, v in manual_dictionary.items() if k not in dictionary[compound].keys()}
-        dictionary[compound].update(manual_uniques)
+        # only fill in values that are currently None --- this preserves any data
+        # already present from .mat files (e.g. resolution, retention_time)
+        # while still applying the general metadata to fields that are empty
+        for k, v in manual_dictionary.items():
+            if dictionary[compound].get(k) is None:
+                dictionary[compound][k] = v
     return dictionary
 
 #dictionary = add_manual_metadata(dictionary)
@@ -609,7 +606,7 @@ def adduct_checker(compound, data):
 #adduct_checker('Abacavir', dictionary['Abacavir'])
 #(dictionary['Abacavir']['monoisotopicMass'] + 1.00783 - e_mass) - dictionary['Abacavir']['precursor_mz']
 
-def prepare_preCompilationSheet(
+def prepare_preCompilationSheet( # deprecated...
     dictionary, mode, 
     annotate_fragments=True, fragment='brute',
     file_name='preComp'
@@ -656,7 +653,7 @@ def prepare_preCompilationSheet(
 #prepare_preCompilationSheet(dictionary, 'neg')
 #prepare_preCompilationSheet(dictionary, 'pos')
 
-def filter_preComp(
+def filter_preComp( # DEPRECATED
         sheet_path, 
         mode, 
         exclude_path='files/compiler/exclude_compounds.txt'
@@ -762,11 +759,13 @@ def write_txtFile(compound, data, save_path, field_order=None):
         f.write('//\n')
 
 def create_txtFiles(
+        precomp_sheet_path,
+        output_dir,
+        accession_long,
+        accession_short,
         accession_start, 
         mode, 
-        sheet_path='output/compiler/',
-        massbank_fields='files/compiler/massbank_fields.txt',
-        txt_path=f'output/compiler/{str(date.today())}',
+        massbank_fields=FIELD_CONVERSION,
         do_filter=True,
     ):
     """
@@ -787,16 +786,15 @@ def create_txtFiles(
     
     if mode not in ['pos', 'neg']:
         raise ValueError('Invalid mode provided.')
-        
-    input_sheet_path = f'output/compiler/preComp_{mode}.csv'
-    dictionary = filter_preComp(input_sheet_path, mode) if do_filter else gu.sheet_to_dict(input_sheet_path) 
+    
+    dictionary = filter_preComp(precomp_sheet_path, mode) if do_filter else gu.sheet_to_dict(precomp_sheet_path) 
     
     for i, (compound, data) in enumerate(dictionary.items()):
         acc_n = f'{accession_start + i:06d}'
-        current_accession = f'MSBNK-ACES_SU-AS{acc_n}'
-        short_accession = f'AS{acc_n}'
+        current_accession = f'{accession_long}{acc_n}'
+        short_accession = f'{accession_short}{acc_n}'
         current_file = f'{compound}_{short_accession}'
-        save_path = os.path.join(txt_path, mode, f'{current_accession}.txt')
+        save_path = os.path.join(output_dir, mode, f'{current_accession}.txt')
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
         data['accession'] = current_accession
@@ -825,7 +823,7 @@ def create_txtFiles(
         write_txtFile(compound, data, save_path)
     
     # create postComp sheet --- with nice formatting!
-    output_sheet_path = os.path.join(sheet_path, f'postComp_{mode}.csv')
+    output_sheet_path = os.path.join(output_dir, f'postComp_{mode}.csv')
     df = pd.DataFrame.from_dict(dictionary, orient='index')
     df = df.rename(columns=MASTERSHEET_COLUMNS)
     df = df.reindex(columns=list(MASTERSHEET_COLUMNS.values()))
@@ -851,20 +849,22 @@ MSP_FIELDS = {
     'PK$NUM_PEAK:': 'Num Peaks:'    
 }
 
-def compSheet_to_msp(sheet_path, mode):
+def compSheet_to_msp(output_dir, mode):
     """
     Creates an .msp file from the final assembly sheet.
-    
+
     Parameters & args:
-        sheet_path (string): Path for the final assembly sheet
+        output_dir (string): Folder containing the postComp_{mode}.csv written by create_txtFiles
         mode (string): Current mode, pos/neg
-        
+
     Returns:
         Nothing
     """
+    # postComp sheet name is fixed — derived from the same output_dir used by create_txtFiles
+    postcomp_sheet_path = os.path.join(output_dir, f'postComp_{mode}.csv')
     
-    dictionary = gu.sheet_to_dict(sheet_path, 'CH$NAME:')
-    msp_path = f'output/compiler/{str(date.today())}_{mode}.msp'
+    dictionary = gu.sheet_to_dict(postcomp_sheet_path, 'CH$NAME:')
+    msp_path = os.path.join(output_dir, f'{str(date.today())}_{mode}.msp')
     with open(msp_path, 'w') as msp:
         for compound, fields in dictionary.items():
             msp.write(f'NAME: {compound}\n')
@@ -883,3 +883,136 @@ def compSheet_to_msp(sheet_path, mode):
 
 #compSheet_to_msp('output/compiler/postComp_pos.csv', 'pos')
 #compSheet_to_msp('output/compiler/postComp_neg.xlsx', 'neg')
+
+# -------------------- CLI SUPPORT --------------------
+
+BR_ISOTOPE_DIFF = 1.99795
+
+def adduct_assigner(compound, data):
+    """
+    Assigns an ion/adduct type to feature data that lacks annotation.
+    Evaluates whether experimental precursor m/z is within 10 ppm of any
+    candidate adduct. Ported from appUtilities for CLI use.
+    """
+    e_mass = 0.00054858
+    h_mass = 1.00783
+    adducts = {
+        '[M]+': -e_mass,
+        '[M]2+': -(2 * e_mass),
+        '[M+H]+': h_mass - e_mass,
+        '[M+NH4]+': 14.00307 + (4 * h_mass) - e_mass,
+        '[M+Na]+': 22.98977 - e_mass,
+        '[M+K]+': 38.96371 - e_mass,
+        '[M+2H]2+': (2 * h_mass) - (2 * e_mass),
+        '[M+H-H2O]+': 17.00274 - e_mass,
+        '[M-H]-': -h_mass + e_mass,
+        '[M+Cl]-': 34.96885 + e_mass,
+        '[M+F]-': 18.99840 + e_mass,
+        '[M-2H]2-': (-2 * h_mass) + (2 * e_mass),
+        '[M-H2O-H]-': -19.01839 + e_mass,
+    }
+    monomass = data.get('monoisotopicMass')
+    exp_mz = data.get('precursor_mz')
+    formula = data.get('molecularFormula')
+
+    nBr = 0
+    if formula and 'Br' in formula:
+        atom_count = fa.parse_formula(formula)
+        nBr = atom_count.get('Br', 0)
+
+    ion_mode = data.get('ion_mode', '')
+    charge_indicator = '+' if ion_mode.lower() == 'positive' else '-' if ion_mode.lower() == 'negative' else None
+    if not charge_indicator:
+        return None
+    adduct_subset = {k: v for k, v in adducts.items() if k.endswith(charge_indicator)}
+
+    if monomass is None or exp_mz is None:
+        return None
+
+    best_ppm = float('inf')
+    best_adduct = None
+    for adduct, shift in adduct_subset.items():
+        charge = get_charge(adduct)
+        for i in range(nBr + 1 if nBr > 0 else 1):
+            theo_mz = (monomass + shift + i * BR_ISOTOPE_DIFF) / abs(charge)
+            ppm_dev = abs(((theo_mz - exp_mz) / theo_mz) * 1e6)
+            if ppm_dev < 10 and ppm_dev < best_ppm:
+                best_ppm = ppm_dev
+                best_adduct = adduct
+    return best_adduct if best_adduct else None
+
+
+def preCompile_CLI(
+    dictionary,
+    mode,
+    output_path,
+    annotate_fragments=True,
+):
+    """
+    Organizes pre-assembly for CLI use. Mirrors preCompile_app logic.
+
+    Parameters & args:
+        dictionary (dict): Pre-assembly dictionary (output of add_chemical_metadata etc.)
+        mode (string): Current mode, pos/neg
+        output_path (string): Full output file path including extension
+        annotate_fragments (bool): Whether to perform fragment formula annotation
+
+    Returns:
+        Nothing --- saves pre-assembly sheet to output_path
+    """
+    # drop compounds lacking essential chemical metadata
+    len_before = len(dictionary)
+    dictionary = {
+        c: d for c, d in dictionary.items()
+        if d.get('monoisotopicMass') and d.get('molecularFormula') and d.get('smiles')
+    }
+    len_after = len(dictionary)
+    if len_before - len_after > 0:
+        print(f'dropped {len_before - len_after} compounds lacking chemical metadata')
+
+    total = len(dictionary)
+    for i, (compound, data) in enumerate(dictionary.items()):
+        # assign ion type if missing
+        if not data.get('ion_type'):
+            data['ion_type'] = adduct_assigner(compound, data)
+            data['adduct_validated'] = 'assigned'
+            validate = False
+        else:
+            validate = True
+
+        # record title
+        short_name = re.sub(r' feature no\. \d+$', '', compound)
+        record_title = '; '.join([
+            short_name,
+            str(data.get('instrument_type', '')),
+            str(data.get('ms_type', '')),
+            str(data.get('collision_energy', '')),
+            str(data.get('resolution', '')),
+            str(data.get('ion_type', '')),
+        ])
+        data['title'] = record_title
+
+        # adduct validation
+        if validate:
+            data['ion_type'], data['adduct_validated'] = adduct_checker(compound, data)
+
+        # fragment annotation
+        if annotate_fragments:
+            try:
+                print(f'annotating {compound} MS2')
+                candidates = fa.generate_subformulas(data, ppm_tol=10)
+                candidates = fa.match_iso_patterns(data, candidates)
+                result = fa.finalize_annotation(data, candidates)
+                data['frag_annot'] = fa.format_annotation(data, result)
+            except Exception as e:
+                data['frag_annot'] = None
+                print(f'failed fragment annotation for {compound}: {e}')
+
+        if (i + 1) % 10 == 0 or (i + 1) == total:
+            print(f'processed {i + 1} of {total} compounds')
+
+    gu.dict_to_sheet(dictionary, output_path)
+    print(f'pre-assembly sheet saved to {output_path}')
+    return None
+
+# ...

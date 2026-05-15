@@ -10,6 +10,7 @@ import utils.fragmentAnnotationNew as fa
 import zipfile
 import io
 import csv
+import os
 
 DDA_COLUMNS = [
     'Compound',
@@ -74,13 +75,6 @@ def create_targetDDA_app(dictionary, settings, mode):
     mixtures = group_by_mixture(dictionary)
     max_mz, double_charge_limit, rt_baseline, rt_window = settings
     
-    # we condition what adducts we provide based on the m/z
-    # more info --- the first adducts are "normal" formatting, the second [] is XCalibur formatting
-    # this can also be empty, if there isn't a native format for an adduct in XCalibur
-    # the final column contains charge values
-    # the columns we need to consider are
-    # compound - formula - adduct - m/z - z - RT - window
-    
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
         for mode in ('pos', 'neg'):
@@ -96,49 +90,43 @@ def create_targetDDA_app(dictionary, settings, mode):
                     formula = data.get('molecularFormula', '')
                     mass = data.get('monoisotopicMass', 0)
                     
-                    # make adducts customizable...? later.
-                    
-                    # if native charge, we only use that one
                     if mode == 'pos' and formula.endswith('+'):
                         mass, z = natively_charged_adduct(formula, mass)
                         writer.writerow([compound, formula, '', mass, z, rt_baseline, rt_window])
                         continue
                     if mode == 'neg' and '+' in formula:
-                        continue  # skip native cations in neg mode
-                    # rules for others
+                        continue
                     if mode == 'pos':
-                        if mass > max_mz: # only double charge if mass is above top end
+                        if mass > max_mz:
                             adducts = ['[M+2H]2+']
                             formatted = ['']
                             z_vals = [2]
-                        elif mass > double_charge_limit: # incl double charge if...
+                        elif mass > double_charge_limit:
                             adducts = ['[M+H]+', '[M+NH4]+', '[M+Na]+', '[M+2H]2+']
                             formatted = ['+H', '+NH4', '+Na', '']
                             z_vals = [1, 1, 1, 2]
-                        else: # and if not, use the basics
+                        else:
                             adducts = ['[M+H]+', '[M+NH4]+', '[M+Na]+']
                             formatted = ['+H', '+NH4', '+Na']
                             z_vals = [1, 1, 1]
                     elif mode == 'neg':
-                        if mass > max_mz: # only double charge if mass is above top end
+                        if mass > max_mz:
                             adducts = ['[M-2H]2-']
                             formatted = ['']
                             z_vals = [2]
-                        elif mass > double_charge_limit: # incl double charge if...
+                        elif mass > double_charge_limit:
                             adducts = ['[M-H]-','[M+CH3COOH-H]-','[M+Cl]-', '[M-2H]2-']
                             formatted = ['-H', '', '', '']
                             z_vals = [1, 1, 1, 2]
-                        else: # and if not, use the basics
+                        else:
                             adducts = ['[M-H]-','[M+CH3COOH-H]-','[M+Cl]-']
                             formatted = ['-H', '', '']
                             z_vals = [1, 1, 1]
-                        
                         
                     for adduct, fmt, z_val in zip(adducts, formatted, z_vals):
                         mz_val = data.get(adduct, mass if not adduct else '')
                         writer.writerow([compound, formula, fmt, mz_val, z_val, rt_baseline, rt_window])
                         
-                # add csv to zip
                 csv_content = csv_buffer.getvalue()
                 filename = f'{mode}/ddaList_{mode}_mixture_{mix}.csv'
                 zf.writestr(filename, csv_content)
@@ -150,3 +138,70 @@ def create_targetDDA_app(dictionary, settings, mode):
 #natively_charged_adduct('C12H30N2+2', 202.240898965)
 #create_targetDDA('output/prepThreeSheet.csv', 'pos')
 #create_targetDDA('output/prepThreeSheet.csv', 'neg')
+
+# -------------------- CLI SUPPORT --------------------
+
+default_settings = {
+    'max_mz': 950,
+    'double_charge_limit': 600,
+    'baseline_rt': 8,
+    'baseline_rt_window': 15,
+}
+
+def create_targetDDA(sheet_path, mode, output_dir, settings=default_settings):
+    """
+    Organizes creation of Thermo XCalibur-format targeted DDA inclusion lists.
+    CLI version: reads from file, writes CSVs directly to output/ddaLists/{mode}/.
+    
+    Parameters & args:
+        sheet_path (string): Path to mix module output sheet
+        mode (string): Current mode, pos/neg
+        settings (dict): Optional settings dict; falls back to default_settings
+    """
+    
+    dictionary = gu.sheet_to_dict(sheet_path)
+    mixtures = group_by_mixture(dictionary)
+    max_mz = settings.get('max_mz', 950)
+    double_charge_limit = settings.get('double_charge_limit', 600)
+    rt_baseline = settings.get('baseline_rt', 8)
+    rt_window = settings.get('baseline_rt_window', 15)
+    
+    mode_settings = {
+        'pos': {
+            'adducts': [
+                (max_mz, ['[M+2H]2+'], ['',], [2]),
+                (double_charge_limit, ['[M+H]+','[M+NH4]+','[M+Na]+', '[M+2H]2+'], ['+H', '+Na', '+NH4', ''], [1, 1, 1, 2]),
+                (0, ['[M+H]+','[M+NH4]+','[M+Na]+'], ['+H', '+Na', '+NH4'], [1, 1, 1])
+            ]
+        },
+        'neg': {
+            'adducts': [
+                (max_mz, ['[M-2H]2-'], ['',], [2]),
+                (double_charge_limit, ['[M-H]-','[M+CH3COOH-H]-','[M+Cl]-', '[M-2H]2-'], ['-H', '', '', ''], [1, 1, 1, 2]),
+                (0, ['[M-H]-','[M+CH3COOH-H]-','[M+Cl]-'], ['-H', '', ''], [1, 1, 1])
+            ]
+        }
+    }
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    for mix, compounds in mixtures.items():
+        with open(f"{output_dir}ddaList_{mode}_mixture_{mix}.csv", 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(DDA_COLUMNS)
+            for compound in compounds:
+                data = dictionary[compound]
+                formula = data['molecularFormula']
+                mass = data['monoisotopicMass']
+                if mode == 'pos' and '+' in formula:
+                    mass, z = natively_charged_adduct(formula, mass)
+                    writer.writerow([compound, formula, '', mass, z, rt_baseline, rt_window])
+                    continue
+                if mode == 'neg' and '+' in formula:
+                    continue
+                for threshold, adducts, adducts_formatted, z_values in mode_settings[mode]['adducts']:
+                    if mass > threshold:
+                        write_rows(writer, compound, formula, adducts, data,
+                                   adducts_formatted, z_values, rt_baseline, rt_window)
+                        break
+    return None

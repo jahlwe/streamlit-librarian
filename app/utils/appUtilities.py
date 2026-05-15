@@ -330,7 +330,7 @@ def parse_matFile_app(
                     feature_index += 1
                     current_compound = f'{base_name} feature no. {feature_index}'
                 
-                current_record = {'keyColumn': 'library_id'}
+                current_record = {}
                 continue
             
             for field, storage in MAT_FIELDS.items():

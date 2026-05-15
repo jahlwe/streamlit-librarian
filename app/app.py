@@ -6,7 +6,6 @@ Created on Thu Jun 12 09:24:55 2025
 """
 
 import streamlit as st
-import utils.librarian as lib
 import utils.appUtilities as au
 import utils.genericUtilities as gu
 import utils.pubchemUtilities as pu
@@ -804,7 +803,7 @@ def render_lib_precomp():
                         progress_callback=progress_callback
                     )
                     output_buffer = io.StringIO()
-                    gu.dict_to_sheet(precomp_dict, file_name=None, fmat='.csv', buffer=output_buffer)
+                    gu.dict_to_sheet(precomp_dict, save_path=None, fmat='.csv', buffer=output_buffer)
                     output_buffer.seek(0)
                     st.session_state['output'] = output_buffer
                     st.session_state['precomp_ready'] = True
