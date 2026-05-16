@@ -118,9 +118,9 @@ FIELD_CONVERSION = {
     'ion_type': 'MS$FOCUSED_ION: ION_TYPE',
     'data_processing': 'MS$DATA_PROCESSING:',
     'splash': 'PK$SPLASH:',
+    'ms2_annot': 'PK$ANNOTATION:', # actually should be above num peak and peaks
     'num_peak': 'PK$NUM_PEAK:',
-    'ms2_peaks': 'PK$PEAK:',
-    'ms2_annot': 'PK$ANNOTATION:',
+    'ms2_peaks': 'PK$PEAK:',   
 }
 
 # use this at the end of compilation to generate a mastersheet 
@@ -338,6 +338,8 @@ def parse_matFile_app(
                     value = line.split(': ', 1)[1].strip()
                     if storage in ['retention_time', 'precursor_mz']:
                         value = round(float(value), 2 if storage == 'retention_time' else 5)
+                    if field == 'IONMODE:':
+                        value = value.upper()
                     current_record[storage] = value
                     
             if custom_mat_fields: # custom mat fields

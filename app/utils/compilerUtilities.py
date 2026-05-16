@@ -84,9 +84,9 @@ FIELD_CONVERSION = {
     'ion_type': 'MS$FOCUSED_ION: ION_TYPE',
     'data_processing': 'MS$DATA_PROCESSING:',
     'splash': 'PK$SPLASH:',
+    'ms2_annot': 'PK$ANNOTATION:', # added recently --- SHOULD BE ABOVE NUM PEAK!
     'num_peak': 'PK$NUM_PEAK:',
     'ms2_peaks': 'PK$PEAK:',
-    'ms2_annot': 'PK$ANNOTATION:', # added recently
 }
 
 STORAGE_FIELDS = [
@@ -791,7 +791,7 @@ def create_txtFiles(
     
     for i, (compound, data) in enumerate(dictionary.items()):
         acc_n = f'{accession_start + i:06d}'
-        current_accession = f'{accession_long}{acc_n}'
+        current_accession = f'MSNBNK-{accession_long}-{accession_short}{acc_n}'
         short_accession = f'{accession_short}{acc_n}'
         current_file = f'{compound}_{short_accession}'
         save_path = os.path.join(output_dir, mode, f'{current_accession}.txt')
@@ -815,7 +815,7 @@ def create_txtFiles(
         # now also fragment annotations...
         if data.get('frag_annot'):
             annot_line = 'm/z tentative_formula formula_count mass error(ppm)\n' + ''.join(
-                f' {theo_mz} {t_f} {f_count} {exp_mz} {ppm}\n' for theo_mz, t_f, f_count, exp_mz, ppm in data['frag_annot']
+                f'  {theo_mz} {t_f} {f_count} {exp_mz} {ppm}\n' for theo_mz, t_f, f_count, exp_mz, ppm in data['frag_annot']
             )
             data['ms2_annot'] = annot_line
         
