@@ -146,6 +146,68 @@ def get_hc_ratio(atom_counts):
     h_count, c_count = atom_counts.get('H', 0), atom_counts.get('C', 0)
     return h_count / c_count if h_count and c_count else float('Inf')
 
+def get_dbe(atom_counts):
+    """
+    Calculates the degree of unsaturation (DBE / rings + double bonds)
+    for a given atom count dictionary (ion formula).
+    DBE = (2C + 2 + N + P - H - F - Cl - Br - I) / 2
+    Returns a float. Integer values indicate even-electron ions for most
+    adducts; half-integer values indicate odd-electron (radical) fragments.
+    N.B., interpretation is adduct-dependent — see get_adduct_dbe_offset.
+    A negative DBE is chemically impossible and used as a hard discard filter.
+    """
+    c = atom_counts.get('C', 0)
+    h = atom_counts.get('H', 0)
+    n = atom_counts.get('N', 0)
+    p = atom_counts.get('P', 0)
+    halogens = sum(atom_counts.get(x, 0) for x in ('F', 'Cl', 'Br', 'I'))
+    return (2 * c + 2 + n + p - h - halogens) / 2
+
+def get_adduct_dbe_offset(adduct):
+    """
+    Computes the shift in DBE caused by the adduct atoms relative to the
+    neutral fragment. Because DBE is linear in atom counts (C: +1, N/P: +0.5,
+    H/halogens: -0.5, O/S: 0), and the adduct atoms are baked into the
+    ion formula, this offset determines what DBE fractional part to expect
+    for even-electron (closed-shell) fragment ions of a given adduct.
+
+    The fractional part of the offset (% 1) gives the expected parity:
+      0.5 == even-electron fragments have half-integer DBE
+             (most common adducts: [M+H]+, [M-H]-, [M+Cl]-, [M+NH4]+, ...)
+      0.0 == even-electron fragments have integer DBE
+             ([M+Na]+, [M+K]+, [M]+, [M+2H]2+, [M-2H]2-)
+    """
+    PER_ATOM_DBE = {
+        'C': 1.0, 'N': 0.5, 'P': 0.5,
+        'H': -0.5, 'F': -0.5, 'Cl': -0.5, 'Br': -0.5, 'I': -0.5,
+    }
+    return sum(
+        count * PER_ATOM_DBE.get(elem, 0.0)
+        for elem, count in ADDUCTS.get(adduct, {}).items()
+    )
+
+def get_element_ratio_score(atom_counts):
+    """
+    Scores a candidate formula on the plausibility of element ratios
+    relative to C, using bounds from Fiehn & Kind.
+    Each ratio that falls outside the expected range for organic compounds
+    contributes a penalty of 0.33, so one violation = 0.67, two = 0.34,
+    three or more = 0.0. 
+    (N.B. --- returns 1.0 for C-free fragments, C-comparisons not meaningful)
+    """
+    c = atom_counts.get('C', 0)
+    if c == 0:
+        return 1.0
+    checks = [
+        (atom_counts.get('H', 0) / c, 0.1, 6.0),  # H/C
+        (atom_counts.get('N', 0) / c, 0.0, 1.3),  # N/C
+        (atom_counts.get('O', 0) / c, 0.0, 1.2),  # O/C
+        (atom_counts.get('S', 0) / c, 0.0, 0.8),  # S/C
+        (atom_counts.get('P', 0) / c, 0.0, 0.3),  # P/C
+    ]
+    violations = sum(1 for ratio, lo, hi in checks if not (lo <= ratio <= hi))
+    return max(0.0, 1.0 - violations * 0.33)
+
 def generate_iso_pattern(formula, charge):
     # This should be enough...
     massDist = {}
@@ -237,6 +299,10 @@ def generate_subformulas(data, ppm_tol=10):
                 # Which should not be possible of course
                 if (current_formula == neutral_parent_formula and not is_natively_charged):
                     continue
+                # Hard filter: negative DBE is chemically impossible
+                dbe = get_dbe(current)
+                if dbe < 0:
+                    break
                 # Deduplicate on formula
                 peak_candidates[target_mz][current_formula] = {
                     'peak_idx': peak_idx,
@@ -247,7 +313,11 @@ def generate_subformulas(data, ppm_tol=10):
                     # Evaluate stuff. Initiate variables here...
                     'iso_score': 0.0,
                     'iso_peaks': [],
+                    # relatively obsolete when we have element ratios scores,
+                    # but keep for now. hc_ratio is not being used for anything.
                     'hc_ratio': get_hc_ratio(current.copy()),
+                    'dbe': dbe,
+                    'element_ratio_score': get_element_ratio_score(current),
                     # Store flag for molecular ion
                     'is_parent': True if current_formula == molecular_ion_formula else False,
                     # Store this if we start dabbling with non-single charges
@@ -270,6 +340,10 @@ def generate_subformulas(data, ppm_tol=10):
                     # And this although maybe irrelevant
                     if (current_formula == neutral_parent_formula and not is_natively_charged):
                         continue
+                    # Hard filter: negative DBE is chemically impossible
+                    dbe = get_dbe(current)
+                    if dbe < 0:
+                        break
                     # Without thinking too much about it there should be no clashes possible here
                     peak_candidates[target_mz][current_formula] = {
                         'peak_idx': peak_idx,
@@ -281,6 +355,8 @@ def generate_subformulas(data, ppm_tol=10):
                         'iso_score': 0.0,
                         'iso_peaks': [],
                         'hc_ratio': get_hc_ratio(current.copy()),
+                        'dbe': dbe,
+                        'element_ratio_score': get_element_ratio_score(current),
                         # Store flag for molecular ion
                         'is_parent': True if current_formula == molecular_ion_formula else False,
                         # Store this if we start dabbling with non-single charges
@@ -420,7 +496,7 @@ def match_iso_patterns(data, peak_candidates, ppm_leeway=10, min_iso_prob=0.01):
     # Should now be updated with iso_score and peaks for each formula-fragment match
     return peak_candidates          
 
-def finalize_annotation(data, peak_candidates, molecular_ion_formula=None):
+def finalize_annotation(data, peak_candidates, molecular_ion_formula=None, ppm_tol=10):
     # ----- SETUP -----
     parent_formula = data.get('molecularFormula', None)
     adduct = data.get('ion_type', None)
@@ -428,7 +504,13 @@ def finalize_annotation(data, peak_candidates, molecular_ion_formula=None):
     
     if not parent_formula or not adduct or not peak_data:
         return None
-    
+
+    # EXTENDING THE DBE TO INCLUDE ADDUCT CONSIDERATIONS.
+    # Expected DBE fractional part for even-electron fragment ions, given adduct.
+    # 0.5 == half-integer expected (eg [M+H]+)
+    # 0.0 == integer expected (eg [M+Na]+)
+    expected_even_electron_frac = get_adduct_dbe_offset(adduct) % 1
+
     # We need to find if this formula is present in the peak candidates,
     # and if it is, we need to use the peak_idx stored in there
     molecular_ion_formula = regenerate_formula_hill(apply_adduct(parse_formula(parent_formula), adduct))
@@ -455,33 +537,56 @@ def finalize_annotation(data, peak_candidates, molecular_ion_formula=None):
             
         # We already store our peak candidates by exp_mz
         candidates = peak_candidates.get(exp_mz, {})
-        
+
         if not candidates:
             continue
-            
+
+        # 260524 --- make sure parent is locked in if present, should not
+        # be part of any scoring competition...
+        parent_candidate = next(
+            ((f, c) for f, c in candidates.items() if c.get('is_parent')), None
+        )
+        if parent_candidate:
+            formula, candidate = parent_candidate
+            result[peak_idx] = (
+                exp_mz, formula, round(candidate['mass'], 5),
+                candidate['error_ppm'], False, True, candidate['charge']
+            )
+            continue
+
         # Single candidate
         if len(candidates) == 1:
             formula, candidate = next(iter(candidates.items()))
             result[peak_idx] = (
-                exp_mz, formula, round(candidate['mass'], 5), candidate['error_ppm'], 
-                False, formula == molecular_ion_formula, candidate['charge']
+                exp_mz, formula, round(candidate['mass'], 5), candidate['error_ppm'],
+                False, False, candidate['charge']
             )
         else:
             # Multiple candidates, gotta score somehow...
             scored_candidates = []
             for formula, candidate in candidates.items():
+                # in the future, maybe we make the iso score optional, because
+                # it assumes an isolation window wide enough to include at least M+1
+                # if users KNOW their isolation window is narrow, a peak assigned
+                # as isotopic is very much wrong
                 iso_score = candidate.get('iso_score', 0.0)
                 ppm_error = abs(candidate.get('error_ppm', 0.0))
-                # This needs some work
-                total_score = iso_score * 0.9 + (1.0 - ppm_error/50) * 0.1
+                # ppm score: normalised against actual ppm_tol, clamped to [0, 1]
+                ppm_score = max(0.0, 1.0 - ppm_error / ppm_tol)
+                # dbe score: 1.0 if even-electron (expected parity), 0.7 if odd-electron (radical)
+                dbe = candidate.get('dbe', 0.0)
+                dbe_score = 1.0 if (dbe % 1) == expected_even_electron_frac else 0.7
+                # element ratio score: penalises formulas with implausible H/C, N/C, O/C, S/C, P/C
+                ratio_score = candidate.get('element_ratio_score', 1.0)
+                total_score = iso_score * 0.7 + ppm_score * 0.1 + dbe_score * 0.1 + ratio_score * 0.1
                 scored_candidates.append((total_score, formula, candidate))
-            
+
             if scored_candidates:
                 _, best_formula, best_candidate = max(scored_candidates)
                 result[peak_idx] = (
-                    exp_mz, best_formula, round(best_candidate['mass'], 5), 
-                    best_candidate['error_ppm'], False, 
-                    best_formula == molecular_ion_formula,
+                    exp_mz, best_formula, round(best_candidate['mass'], 5),
+                    best_candidate['error_ppm'], False,
+                    False,
                     best_candidate['charge']
                 )
         
@@ -549,16 +654,21 @@ def format_annotation(data, result):
         formatted.append((mz, formatted_formula, formula_count, theo_mz, ppm_error))
     return formatted
     
-#def annotate(compound, data):
-#    cands = generate_subformulas(data[compound], ppm_tol=10)
-    # peaks = data[compound]['ms2_data']
-#    cands = match_iso_patterns(data[compound], cands)
-#    final = finalize_annotation(data[compound], cands)
-#    return format_annotation(data[compound], final)
+# just using this to investigate stuff, not used in app
+def annotate(compound, data):
+    cands = generate_subformulas(data[compound], ppm_tol=10)
+    #peaks = data[compound]['ms2_data']
+    cands = match_iso_patterns(data[compound], cands)
+    final = finalize_annotation(data[compound], cands)
+    return format_annotation(data[compound], final)
 
 #neg_data = gu.sheet_to_dict('preAssembly_neg.csv')
 #pos_data = gu.sheet_to_dict('preAssembly_pos.csv')
-#annotate('Theobromine', pos_data)
+#pos_data = gu.sheet_to_dict('preComp_pos.csv')
+
+#annotate('Minoxidil', pos_data)
+#annotate('Biotin', pos_data)
+#annotate('Loratadine', pos_data)
 
 # TEST DOUBLE CHARGE PERFORMANCE
 #pos_data = gu.sheet_to_dict('PA_panalc.csv')

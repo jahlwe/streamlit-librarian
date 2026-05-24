@@ -598,9 +598,11 @@ def render_lib_precomp():
     for key in input_keys + optional_input_keys + ['output', 'precomp_ready', 'prev_inputs']:
         if key not in st.session_state:
                 st.session_state[key] = None
-    for key in ('annot', 'only_keep_annot'):
+    for key in ('annot', 'annot_ppm', 'only_keep_annot'):
         if key not in st.session_state and key == 'annot':
             st.session_state[key] = True
+        if key not in st.session_state and key == 'annot_ppm':
+            st.session_state[key] = None
         if key not in st.session_state and key == 'only_keep_annot':
             st.session_state[key] = False
              
@@ -656,6 +658,18 @@ def render_lib_precomp():
                 )
             else:
                 st.session_state['only_keep_annot'] = False
+                
+        with settings_col3:
+            if st.session_state.get('annot', False):
+                annot_ppm = st.number_input(
+                    'annotation ppm tolerance',
+                    min_value=0.1,
+                    value=float(10),
+                    step=0.1,
+                )
+                st.session_state['annot_ppm'] = annot_ppm
+            else:
+                st.session_state['annot_ppm'] = None
         
         # --- UPLOADS ---
         # columns for horizontal layout
@@ -799,7 +813,10 @@ def render_lib_precomp():
                         rti_data=st.session_state.get('rti_data'),
                         cf_data=st.session_state.get('cf_data'),
                         # send annotation settings as a tuple
-                        annotate_fragments=(st.session_state['annot'], st.session_state['only_keep_annot']),
+                        annotate_fragments=(
+                            st.session_state['annot'], 
+                            st.session_state['only_keep_annot'],
+                            st.session_state['annot_ppm']),
                         progress_callback=progress_callback
                     )
                     output_buffer = io.StringIO()

@@ -582,7 +582,7 @@ def preCompile_app(
     rti_data=None,
     cf_data=None,
     # True for annotation, false for remove unannotated as basic settings
-    annotate_fragments=(True, False),
+    annotate_fragments=(True, False, 10),
     progress_callback=None
 ):
     """
@@ -650,11 +650,13 @@ def preCompile_app(
                     print(f'annotating {compound} MS2')
                     # 260215 --- changes, now recursive formula generation
                     # MAKE PPM TOL ADJUSTABLE
-                    candidates = fa.generate_subformulas(data, ppm_tol=10)
+                    # 260524 --- ADJUSTABLE NOW! Via position 2 in the tuple. 
+                    candidates = fa.generate_subformulas(data, annotate_fragments[2])
+                    #print(f'annotation ppm tolerance: {annotate_fragments[2]}')
                     #print('past gen subformulas')
                     candidates = fa.match_iso_patterns(data, candidates)
                     #print('past match iso patterns')
-                    result = fa.finalize_annotation(data, candidates)
+                    result = fa.finalize_annotation(data, candidates, ppm_tol=annotate_fragments[2])
                     #print('past finalize')
                     data['frag_annot'] = fa.format_annotation(data, result)
                     if annotate_fragments[1]: # if we should discard, this is True
@@ -677,7 +679,12 @@ def preCompile_app(
                 finally: # this is a thing?
                     if progress_callback:
                         progress_callback(i+1, total, compound)
-                        
+
+    # Validation — use annotation ppm_tol if annotation was run, else default
+    val_ppm_tol = annotate_fragments[2] if annotate_fragments[0] else 10
+    print('running validation checks')
+    dictionary = cu.validate_preComp(dictionary, ppm_tol=val_ppm_tol)
+
     return dictionary
 
 # --- COMPILATION ---

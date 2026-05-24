@@ -147,6 +147,7 @@ def preCompile(
     tsv_path,
     output_path,
     annot_fragments=True,
+    ppm_tol=10,
     rti=False,
     classyfire=None,
 ):
@@ -170,7 +171,7 @@ def preCompile(
         if classyfire:
             dictionary = cu.manual_classyfire(dictionary, classyfire)
         # updated precomp function...
-        cu.preCompile_CLI(dictionary, mode, output_path, annot_fragments)
+        cu.preCompile_CLI(dictionary, mode, output_path, annot_fragments, ppm_tol)
     print('done')
 
 def compile_library(
@@ -248,6 +249,7 @@ def precomp(args):
         tsv_path=args.tsv_path,
         output_path=args.output_path,
         annot_fragments=args.fa,
+        ppm_tol=args.ppm_tol,
         rti=args.rti,
         classyfire=args.cf,
     )
@@ -323,6 +325,7 @@ def main():
     parser_precomp.add_argument('tsv_path', help='Instrumental metadata file path (e.g. data/manual_metadata.tsv)')
     parser_precomp.add_argument('output_path', help='Output file path including extension (e.g. data/preComp_pos.csv)')
     parser_precomp.add_argument('-fa', action='store_true', help='Perform fragment annotation')
+    parser_precomp.add_argument('--ppm_tol', type=float, default=10, help='PPM tolerance for fragment annotation (default: 10)')
     parser_precomp.add_argument('-rti', default=False, help='Include RTI data (True/False)')
     parser_precomp.add_argument('-cf', default=None, help='Path to ClassyFire .csv file for manual classification data')
     parser_precomp.set_defaults(func=precomp)

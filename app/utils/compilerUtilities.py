@@ -941,12 +941,202 @@ def adduct_assigner(compound, data):
                 best_adduct = adduct
     return best_adduct if best_adduct else None
 
+# ---------- MORE RECORD VALIDATION FUNCTIONS ----------
+
+# Monoisotopic adduct mass shifts, mirrors adduct_checker
+# Defined once here so validate_record can use it without redefining
+_ADDUCT_MASSES = {
+    '[M]+':       -0.00054858,
+    '[M]2+':      -(2 * 0.00054858),
+    '[M+H]+':     1.00783 - 0.00054858,
+    '[M+NH4]+':   14.00307 + (4 * 1.00783) - 0.00054858,
+    '[M+Na]+':    22.98977 - 0.00054858,
+    '[M+K]+':     38.96371 - 0.00054858,
+    '[M+2H]2+':   (2 * 1.00783) - (2 * 0.00054858),
+    '[M+H-H2O]+': 17.00274 - 0.00054858,
+    '[M-H]-':     -1.00783 + 0.00054858,
+    '[M+Cl]-':    34.96885 + 0.00054858,
+    '[M+F]-':     18.99840 + 0.00054858,
+    '[M-2H]2-':   (-2 * 1.00783) + (2 * 0.00054858),
+    '[M-H2O-H]-': -19.01839 + 0.00054858,
+}
+
+_ISOTOPE_SPACING = 1.003355  # 13C − 12C, Da
+
+def validate_record(
+    compound,
+    data,
+    ppm_tol=10,
+    isolation_window=1.0,
+    min_peaks=3,
+    annot_threshold=20.0,
+):
+    """
+    Validates a single record during pre-assembly and returns a validation string. 
+    Returns 'passed' if no issues are found, otherwise a list of issue descriptions.
+
+    Validation steps:
+        - Adduct not validated by adduct_checker
+        - Precursor mass deviation beyond ppm_tol
+        - Fewer than min_peaks MS2 peaks (NOT CURRENTLY IN USE)
+        - Base peak at precursor m/z (spectrum may be unfragmented)
+        - Peaks detected above precursor m/z (NOT CURRENTLY IN USE)
+        - Co-isolated ions within isolation_window Da
+        - Molecular ion peak not identified (annotation-dependent)
+        - Fragment annotation coverage below annot_threshold % (annotation-dependent)
+
+    Parameters:
+        compound (str): Compound name, used in printed warnings only
+        data (dict): Pre-assembly record dictionary
+        ppm_tol (float): PPM tolerance for mass accuracy and isotope checks
+        isolation_window (float): Da window used for co-isolation check
+        min_peaks (int): Minimum acceptable MS2 peak count
+        annot_threshold (float): Minimum acceptable annotation coverage (%)
+    """
+    issues = []
+
+    adduct      = data.get('ion_type')
+    monomass    = data.get('monoisotopicMass')
+    precursor   = data.get('precursor_mz')
+    ms2_data    = data.get('ms2_data')
+    ms2_norm    = data.get('ms2_norm')
+    frag_annot  = data.get('frag_annot')
+
+    # 1. Adduct validation outcome -------------------------------------------
+    adduct_validated = data.get('adduct_validated')
+    if adduct_validated is False:
+        issues.append('adduct not validated')
+
+    # 2. Precursor mass accuracy ---------------------------------------------
+    if adduct and monomass and precursor and adduct in _ADDUCT_MASSES:
+        charge = get_charge(adduct)
+        if charge != 0:
+            theo_mz = (monomass + _ADDUCT_MASSES[adduct]) / abs(charge)
+            ppm_dev = abs((theo_mz - precursor) / precursor) * 1e6
+            if ppm_dev > ppm_tol:
+                issues.append(
+                    f'precursor mass deviation {ppm_dev:.1f} ppm exceeds tolerance'
+                )
+
+    if ms2_data:
+        ppm_tol_da = (precursor * ppm_tol * 1e-6) if precursor else 0
+
+        # SKIP THIS FOR NOW, actually.....
+        # 3. Minimum peak count ----------------------------------------------
+        #if len(ms2_data) < min_peaks:
+        #    issues.append(f'fewer than {min_peaks} MS2 peaks')
+
+        # Skip this too, should be caught in pre-processing...
+        # 4. Base peak at/near precursor -------------------------------------
+        #if precursor:
+        #    base_mz = max(ms2_data, key=lambda x: x[1])[0]
+        #    if abs(base_mz - precursor) <= ppm_tol_da:
+        #        issues.append(
+        #            'base peak at precursor m/z (spectrum may be unfragmented)'
+        #        )
+
+        # 5. Peaks above precursor -------------------------------------------
+        if precursor:
+            n_above = sum(1 for mz, _ in ms2_data if mz > precursor + ppm_tol_da)
+            if n_above:
+                issues.append(f'{n_above} peak(s) detected above precursor m/z')
+
+        # 6. Co-isolation ----------------------------------------------------
+        if adduct and precursor:
+            charge = get_charge(adduct)
+            if charge != 0:
+                window_peaks = [
+                    mz for mz, _ in ms2_data
+                    if abs(mz - precursor) <= isolation_window
+                    and abs(mz - precursor) > ppm_tol_da
+                ]
+                co_isolated = []
+                for peak_mz in window_peaks:
+                    delta = peak_mz - precursor
+                    if delta < 0:
+                        co_isolated.append(peak_mz)
+                    else:
+                        is_isotope = any(
+                            abs(delta - n * _ISOTOPE_SPACING / abs(charge))
+                            <= peak_mz * ppm_tol * 1e-6
+                            for n in range(1, 4)
+                        )
+                        if not is_isotope:
+                            co_isolated.append(peak_mz)
+                if co_isolated:
+                    issues.append(
+                        f'co-isolated ions detected within {isolation_window} Da window'
+                    )
+
+    # Annotation-dependent checks --------------------------------------------
+    if frag_annot is not None:
+
+        # 7. Molecular ion not identified ------------------------------------
+        mol_formula = data.get('molecularFormula')
+        if mol_formula and adduct:
+            charge = get_charge(adduct)
+            mol_ion_formula = fa.regenerate_formula_hill(
+                fa.apply_adduct(fa.parse_formula(mol_formula), adduct)
+            )
+            expected_fmt = fa.format_formula(data, mol_ion_formula, charge)
+            if not any(entry[1] == expected_fmt for entry in frag_annot):
+                issues.append('molecular ion peak not identified in MS2')
+
+        # 8. Low annotation coverage ----------------------------------------
+        if ms2_norm:
+            total_int = sum(norm_int for _, _, norm_int in ms2_norm)
+            if total_int > 0:
+                annot_int = sum(
+                    norm_int
+                    for (_, _, norm_int), (_, formula, _, _, _)
+                    in zip(ms2_norm, frag_annot)
+                    if formula is not None
+                )
+                coverage = annot_int / total_int * 100
+                if coverage < annot_threshold:
+                    issues.append(
+                        f'annotation coverage {coverage:.1f}% below threshold '
+                        f'({annot_threshold:.0f}%)'
+                    )
+
+    return 'passed' if not issues else ' | '.join(issues)
+
+
+def validate_preComp(
+    dictionary,
+    ppm_tol=10,
+    isolation_window=1.0,
+    min_peaks=3,
+    annot_threshold=20.0,
+):
+    """
+    Applies validate_record to every compound in the pre-assembly dictionary
+    and writes the result to data['validation'].
+
+    Parameters:
+        dictionary (dict): Pre-assembly dictionary
+        ppm_tol (float): PPM tolerance passed to validate_record
+        isolation_window (float): Da window for co-isolation check
+        min_peaks (int): Minimum acceptable MS2 peak count
+        annot_threshold (float): Minimum acceptable annotation coverage (%)
+    """
+    for compound, data in dictionary.items():
+        data['validation'] = validate_record(
+            compound, data,
+            ppm_tol=ppm_tol,
+            isolation_window=isolation_window,
+            min_peaks=min_peaks,
+            annot_threshold=annot_threshold,
+        )
+    return dictionary
+
 
 def preCompile_CLI(
     dictionary,
     mode,
     output_path,
     annotate_fragments=True,
+    ppm_tol=10,
 ):
     """
     Organizes pre-assembly for CLI use. Mirrors preCompile_app logic.
@@ -956,6 +1146,7 @@ def preCompile_CLI(
         mode (string): Current mode, pos/neg
         output_path (string): Full output file path including extension
         annotate_fragments (bool): Whether to perform fragment formula annotation
+        ppm_tol (float): PPM tolerance for fragment annotation (default: 10)
 
     Returns:
         Nothing --- saves pre-assembly sheet to output_path
@@ -1000,9 +1191,9 @@ def preCompile_CLI(
         if annotate_fragments:
             try:
                 print(f'annotating {compound} MS2')
-                candidates = fa.generate_subformulas(data, ppm_tol=10)
+                candidates = fa.generate_subformulas(data, ppm_tol=ppm_tol)
                 candidates = fa.match_iso_patterns(data, candidates)
-                result = fa.finalize_annotation(data, candidates)
+                result = fa.finalize_annotation(data, candidates, ppm_tol=ppm_tol)
                 data['frag_annot'] = fa.format_annotation(data, result)
             except Exception as e:
                 data['frag_annot'] = None
@@ -1011,8 +1202,9 @@ def preCompile_CLI(
         if (i + 1) % 10 == 0 or (i + 1) == total:
             print(f'processed {i + 1} of {total} compounds')
 
+    print('running validation checks')
+    dictionary = validate_preComp(dictionary, ppm_tol=ppm_tol)
+
     gu.dict_to_sheet(dictionary, output_path)
     print(f'pre-assembly sheet saved to {output_path}')
     return None
-
-# ...
