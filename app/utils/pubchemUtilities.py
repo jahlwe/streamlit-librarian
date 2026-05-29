@@ -12,6 +12,7 @@ import requests
 import re
 from rdkit import Chem
 from rdkit.Chem import Crippen
+from rdkit.Chem.MolStandardize import rdMolStandardize
 import utils.genericUtilities as gu
 import time
 from datetime import datetime 
@@ -407,8 +408,6 @@ def pcQuery_expanded(query_input, query_type, pc_data=None):
         cid = pc_data.cid
         parent_cid = None
         if smiles and '.' in smiles:
-            # we can also change special_pcp_findParent to not require
-            # a 'compound' input --- it fills no major function, anyway
             parent_cid = special_pcp_findParent(query_input, cid)
             if parent_cid:
                 pc_data = None # reset pc_data variable if parent
@@ -417,6 +416,30 @@ def pcQuery_expanded(query_input, query_type, pc_data=None):
                     pc_data = pcq[0]
                 else:
                     print(f'no parent found for salt --- input: {query_input}')
+                    return None
+            else:
+                # 260529 --- need this also! sometimes no parent, just "component" annotation
+                # fallback: desalt via RDKit, re-query by desalted SMILES
+                mol = Chem.MolFromSmiles(smiles)
+                if mol:
+                    chooser = rdMolStandardize.LargestFragmentChooser()
+                    parent_mol = chooser.choose(mol)
+                    # we probably want to do this
+                    # enantiomer-speficic entries tend to be less well annotated
+                    Chem.RemoveStereochemistry(parent_mol)
+                    parent_smiles = Chem.MolToSmiles(parent_mol)
+                    if parent_smiles and parent_smiles != smiles:
+                        fallback = pcp.get_compounds(parent_smiles, 'smiles')
+                        if fallback:
+                            pc_data = fallback[0]
+                        else:
+                            print(f'desalt fallback query failed --- input: {query_input}')
+                            return None
+                    else:
+                        print(f'RDKit desalt produced no change --- input: {query_input}')
+                        return None
+                else:
+                    print(f'RDKit could not parse SMILES for desalting --- input: {query_input}')
                     return None
 
         # used to get recordTitle here --- but do that in the special request instead.
@@ -455,8 +478,9 @@ def pcQueries(query_dict, query_empty_only=True,
         query_type = 'cid' if cid_q else 'name' if name_q else 'smiles' if smiles_q else 'cas' if cas_q else None
         
         # if we are querying with a name, clean it
-        if name_q and not cid_q:
-            query_input = nameCleaner(name_q) if str(name_q) != 'nan' else name_q
+        #if name_q and not cid_q:
+        #    query_input = nameCleaner(name_q) if str(name_q) != 'nan' else name_q
+        # don't.
         
         # hmm... think about this one.
         if not gu.is_empty(data.get('queried_at')) and query_empty_only:
@@ -553,14 +577,9 @@ def pcQueries(query_dict, query_empty_only=True,
                         pass
                 
         except Exception as e:
-            # need to change this, later.
-            # probably what will be useful when connection errors happen
-            # need to make sure pcq_out will contain all query input types
-            # in a list, even for those that didn't make the query
-            print(f'{type(e).__name__} while querying {query_input}, exiting')
-            #fname = 'output/pcq_intermediate'
-            #gu.dict_to_sheet(pcq_out, fname)
-            break
+            print(f'{type(e).__name__} while querying {query_input}, skipping')
+            pcq_out[idx]['queried_as'] = (query_input, query_type)
+            continue
 
         if (i + 1) % 5 == 0 and idx != 0:
             print(f'processed {i+1} of {n_compounds} compounds')
@@ -618,8 +637,9 @@ def pcQueries_CLI(query_dict, query_empty_only=True, progress_callback=None):
         query_type = 'cid' if cid_q else 'name' if name_q else 'smiles' if smiles_q else 'cas' if cas_q else None
         
         # if we are querying with a name, clean it
-        if name_q and not cid_q:
-            query_input = nameCleaner(name_q) if str(name_q) != 'nan' else name_q
+        #if name_q and not cid_q:
+        #    query_input = nameCleaner(name_q) if str(name_q) != 'nan' else name_q
+        # actually, don't --- we cant trust the name cleaner.
         
         # hmm... think about this one.
         # we actually don't get to this point because of how we generate  our query 
@@ -682,10 +702,9 @@ def pcQueries_CLI(query_dict, query_empty_only=True, progress_callback=None):
             pcq_out[idx]['library_id'] = library_id if library_id else idx
 
         except Exception as e:
-            print(f'{type(e).__name__} while querying {query_input}, exiting')
-            fname = 'output/pcq_intermediate'
-            gu.dict_to_sheet(pcq_out, fname)
-            break
+            print(f'{type(e).__name__} while querying {query_input}, skipping')
+            pcq_out[idx]['queried_as'] = (query_input, query_type)
+            continue
         if (i + 1) % 5 == 0 and i != 0:
             print(f'processed {i+1} of {n_compounds} compounds')
         if i == n_compounds - 1:
@@ -711,3 +730,7 @@ def pcQueries_CLI(query_dict, query_empty_only=True, progress_callback=None):
 #nameCleaner('(+)-Levobunolol')
 #nameCleaner('(+)-Levobunolol')
 #dictionary = gu.sheet_to_dict('output/pcq_out.csv')
+
+endpoint = CAS_ENDPOINT_TEMPLATE.format(cas_number='129-16-8')
+response = requests.get(endpoint)
+data = response.json()
