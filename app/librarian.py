@@ -27,16 +27,18 @@ def query_PubChem(
     sheet_path,
     output_path,
     preferred_key='library_id',
+    canonicalize_smiles=False,
+    drop_stereochemistry=False,
 ):
     ip, op = Path(sheet_path), Path(output_path)
     if ip.suffix.lower() not in ('.csv', '.xlsx', '.xls'):
         raise ValueError('unsupported input format')
     if op.suffix.lower() not in ('.csv', '.xlsx', '.xls'):
         raise ValueError('unsupported output format')
-        
+
     dictionary = gu.sheet_to_dict(sheet_path, preferred_key)
     if dictionary:
-        dictionary = pu.pcQueries_CLI(dictionary)
+        dictionary = pu.pcQueries_CLI(dictionary, canonicalize_smiles=canonicalize_smiles, drop_stereochemistry=drop_stereochemistry)
         gu.dict_to_sheet(dictionary, output_path)
 
 def survey_DBs(
@@ -164,7 +166,7 @@ def preCompile(
         gc.collect()
         dictionary = cu.add_manual_metadata(dictionary, tsv_path)
         if rti:
-            rti_dictionary = cu.gather_RTIData(mode)
+            rti_dictionary = cu.gather_RTIData(mode, folder_path=rti)
             dictionary = cu.add_RTIData(dictionary, rti_dictionary)
             del rti_dictionary
             gc.collect()
@@ -199,6 +201,8 @@ def run_pcq(args):
         sheet_path=args.sheet_path,
         output_path=args.output_path,
         preferred_key=args.preferred_key,
+        canonicalize_smiles=args.canonicalize_smiles,
+        drop_stereochemistry=args.drop_stereochemistry,
     )
 
 def run_sdb(args):
@@ -262,7 +266,7 @@ def run_compile(args):
         accession_short=args.acc_short,
         accession_start=args.acc_start,
         mode=args.mode,
-        do_filter=args.filter,
+        do_filter=False,  # obsoleted, just do this for now
     )
 
 
@@ -275,6 +279,8 @@ def main():
     parser_pcq.add_argument('sheet_path', help='Input sheet path (e.g. data/compounds.xlsx)')
     parser_pcq.add_argument('output_path', help='Output file path including extension (e.g. results/pcq_out.csv)')
     parser_pcq.add_argument('-k', '--preferred_key', default='library_id', help='Column to use as dictionary key (default: library_id)')
+    parser_pcq.add_argument('-c', '--canonicalize_smiles', action='store_true', help='Canonicalize SMILES inputs via RDKit before querying (default: False)')
+    parser_pcq.add_argument('-d', '--drop_stereochemistry', action='store_true', help='Remove stereochemistry from SMILES before querying, requires -c (default: False)')
     parser_pcq.set_defaults(func=run_pcq)
 
     # sdb
@@ -294,7 +300,7 @@ def main():
     parser_mix.add_argument('n_mixes', type=int, help='Number of mixtures to create')
     parser_mix.add_argument('output_path', help='Output file path including extension (e.g. results/mix_out.csv)')
     parser_mix.add_argument('-d', '--min_diff', type=float, default=0.01, help='Minimum mass difference allowed within a mixture (default: 0.01)')
-    parser_mix.add_argument('-e', '--enforce', default=False, help='Require all compounds to be assigned before finishing (default: False)')
+    parser_mix.add_argument('-e', '--enforce', action='store_true', help='Require all compounds to be assigned before finishing (default: False)')
     parser_mix.add_argument('-a', '--auto_assign', action='store_true', help='Auto-assign unplaced compounds by xlogp if mass diff constraint cannot be met')
     parser_mix.set_defaults(func=run_mix)
 
@@ -320,25 +326,25 @@ def main():
     parser_precomp = subparsers.add_parser(
         'precomp', help='Assemble all data into a pre-compilation sheet for final .txt file generation')
     parser_precomp.add_argument('mode', choices=['pos', 'neg'], help='Ionisation mode (pos/neg)')
-    parser_precomp.add_argument('data_dir', help='Folder containing .mat file folders (whom should be named pos and/or neg respectively)')
+    parser_precomp.add_argument('data_dir', help='Folder containing .mat file folders (which should be named pos and/or neg respectively)')
     parser_precomp.add_argument('ref_path', help='Chemical metadata reference sheet path (e.g. data/pcq_out.csv)')
     parser_precomp.add_argument('tsv_path', help='Instrumental metadata file path (e.g. data/manual_metadata.tsv)')
     parser_precomp.add_argument('output_path', help='Output file path including extension (e.g. data/preComp_pos.csv)')
     parser_precomp.add_argument('-fa', action='store_true', help='Perform fragment annotation')
-    parser_precomp.add_argument('--ppm_tol', type=float, default=10, help='PPM tolerance for fragment annotation (default: 10)')
-    parser_precomp.add_argument('-rti', default=False, help='Include RTI data (True/False)')
-    parser_precomp.add_argument('-cf', default=None, help='Path to ClassyFire .csv file for manual classification data')
+    parser_precomp.add_argument('-p','--ppm_tol', type=float, default=10, help='PPM tolerance for fragment annotation (default: 10)')
+    parser_precomp.add_argument('-rti', default=None, help='Path to folder containing RTI spreadsheets (e.g. data/RTI/)')
+    parser_precomp.add_argument('-cf', default=None, help='Path to ClassyFire .csv file (e.g. data/classyfire.csv)')
     parser_precomp.set_defaults(func=precomp)
 
     # compile
     parser_compile = subparsers.add_parser('compile', help='Create .txt & .msp files from a pre-compilation sheet')
-    parser_compile.add_argument('precomp_sheet_path', help='Path to pre-assembly .csv sheet (e.g. data/preComp_pos.csv)')
+    parser_compile.add_argument('sheet_path', help='Path to pre-assembly .csv sheet (e.g. data/preComp_pos.csv)')
     parser_compile.add_argument('output_dir', help='Folder where .txt files, postComp sheet, and .msp are written')
     parser_compile.add_argument('acc_long', help='Long accession prefix (format MSBNK-USERID-SHORTACC)')
     parser_compile.add_argument('acc_short', help='Short accession prefix (format SHORTACC)')
     parser_compile.add_argument('acc_start', type=int, help='Starting accession number for new entries')
     parser_compile.add_argument('mode', choices=['pos', 'neg'], help='Ionisation mode (pos/neg)')
-    parser_compile.add_argument('-f', '--filter', default=False, help='Filter enantiomers and excluded compounds (default: True)')
+    #parser_compile.add_argument('-f', '--filter', default=False, help='Filter enantiomers and excluded compounds (default: True)')
     parser_compile.set_defaults(func=run_compile)
 
     args = parser.parse_args()

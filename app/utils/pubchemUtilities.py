@@ -448,7 +448,8 @@ def pcQuery_expanded(query_input, query_type, pc_data=None):
         print(f'no pubchem entry found --- input: [{query_input}] type: [{query_type}]')
         return None
 
-def pcQueries(query_dict, query_empty_only=True, 
+def pcQueries(query_dict, query_empty_only=True, canonicalize_smiles=False,
+              drop_stereochemistry=False,
               query_comptox=False, api_key=None, ctx_query_specs=None,
               progress_callback=None
   ):
@@ -481,7 +482,36 @@ def pcQueries(query_dict, query_empty_only=True,
         #if name_q and not cid_q:
         #    query_input = nameCleaner(name_q) if str(name_q) != 'nan' else name_q
         # don't.
-        
+        # do this though.
+        if name_q and not cid_q:
+            name_q = str(name_q).strip('"')
+            query_input = name_q
+
+        # this however ---
+        # if we are querying with a SMILES, users can choose to canonicalize
+        if smiles_q and not cid_q and not name_q:
+            mol = Chem.MolFromSmiles(smiles_q)
+            if canonicalize_smiles and drop_stereochemistry:
+                if mol:
+                    print('canonicalizing SMILES and removing stereochemistry')
+                    print(f'input SMILES: {smiles_q}')
+                    Chem.RemoveStereochemistry(mol)
+                    query_input = Chem.MolToSmiles(mol)
+                    print(f'canonicalized SMILES: {query_input}')
+                else:
+                    print(f'invalid SMILES, skipping canonicalization --- input: [{smiles_q}]')
+            elif canonicalize_smiles:
+                if mol:
+                    print('canonicalizing SMILES')
+                    print(f'input SMILES: {smiles_q}')
+                    query_input = Chem.MolToSmiles(mol)
+                    print(f'canonicalized SMILES: {query_input}')
+                else:
+                    print(f'invalid SMILES, skipping canonicalization --- input: [{smiles_q}]')
+            elif drop_stereochemistry:
+                # do nothing
+                print('drop stereochemistry choice does nothing without also choosing to canonicalize')
+
         # hmm... think about this one.
         if not gu.is_empty(data.get('queried_at')) and query_empty_only:
             continue
@@ -518,13 +548,17 @@ def pcQueries(query_dict, query_empty_only=True,
             
             # synonyms
             current_synonyms = safe_getattr(pc_data, 'synonyms', [])
-            pcq_out[idx]['synonyms'] = [v.lower() for v in current_synonyms if not re.match(
-                r'^(?=.*\d)(?=.*[A-Z\W])[\dA-Z\W]+$', v)]
-            
+            pcq_out[idx]['synonyms'] = '; '.join(
+                [v.lower().replace('"', '') for v in current_synonyms if not re.match(
+                    r'^(?=.*\d)(?=.*[A-Z\W])[\dA-Z\W]+$', v)]
+            )
+
             # others - now with helper
             for attr, key, default, *cast in FIELDS:
                 pcq_out[idx][key] = safe_getattr(pc_data, attr, default, *cast)
-            
+            # iupacName is causing issues sometimes
+            pcq_out[idx]['iupacName'] = (pcq_out[idx]['iupacName'] or '').strip('"')
+
             # 250713 --- pubchem is messing around with SMILES.
             # it is None in pcp-objects. temporary solution:
             smiles_list = [
@@ -596,7 +630,7 @@ def pcQueries(query_dict, query_empty_only=True,
 # instead, add necessary functions and let the CLI call them
 # ....
 
-def pcQueries_CLI(query_dict, query_empty_only=True, progress_callback=None):
+def pcQueries_CLI(query_dict, query_empty_only=True, canonicalize_smiles=False, drop_stereochemistry=False, progress_callback=None):
     pcq_out = {} # create a dictionary to store data in an organized format
     requery_dict = {} # initialize, in case its needed
     # we need to look at the input sheet --- 
@@ -640,7 +674,27 @@ def pcQueries_CLI(query_dict, query_empty_only=True, progress_callback=None):
         #if name_q and not cid_q:
         #    query_input = nameCleaner(name_q) if str(name_q) != 'nan' else name_q
         # actually, don't --- we cant trust the name cleaner.
-        
+        if name_q and not cid_q:
+            name_q = str(name_q).strip('"')
+            query_input = name_q
+
+        # if we are querying with a SMILES, users can choose to canonicalize and/or drop stereo
+        if smiles_q and not cid_q and not name_q:
+            mol = Chem.MolFromSmiles(smiles_q)
+            if canonicalize_smiles and drop_stereochemistry:
+                if mol:
+                    Chem.RemoveStereochemistry(mol)
+                    query_input = Chem.MolToSmiles(mol)
+                else:
+                    print(f'invalid SMILES, skipping canonicalization --- input: [{smiles_q}]')
+            elif canonicalize_smiles:
+                if mol:
+                    query_input = Chem.MolToSmiles(mol)
+                else:
+                    print(f'invalid SMILES, skipping canonicalization --- input: [{smiles_q}]')
+            elif drop_stereochemistry:
+                print('drop_stereochemistry has no effect without canonicalize_smiles')
+
         # hmm... think about this one.
         # we actually don't get to this point because of how we generate  our query 
         # input dictionary (only stuff without data is included) in the app, but whatever
@@ -672,13 +726,17 @@ def pcQueries_CLI(query_dict, query_empty_only=True, progress_callback=None):
             
             # synonyms
             current_synonyms = safe_getattr(pc_data, 'synonyms', [])
-            pcq_out[idx]['synonyms'] = [v.lower() for v in current_synonyms if not re.match(
-                r'^(?=.*\d)(?=.*[A-Z\W])[\dA-Z\W]+$', v)]
-            
+            pcq_out[idx]['synonyms'] = '; '.join(
+                [v.lower().replace('"', '') for v in current_synonyms if not re.match(
+                    r'^(?=.*\d)(?=.*[A-Z\W])[\dA-Z\W]+$', v)]
+            )
+
             # others - now with helper
             for attr, key, default, *cast in FIELDS:
                 pcq_out[idx][key] = safe_getattr(pc_data, attr, default, *cast)
-            
+            # iupacName is causing issues sometimes
+            pcq_out[idx]['iupacName'] = (pcq_out[idx]['iupacName'] or '').strip('"')
+
             # 250713 --- pubchem is messing around with SMILES.
             # it is none in pcp-objects. temporary solution:
             smiles_list = [
@@ -731,6 +789,24 @@ def pcQueries_CLI(query_dict, query_empty_only=True, progress_callback=None):
 #nameCleaner('(+)-Levobunolol')
 #dictionary = gu.sheet_to_dict('output/pcq_out.csv')
 
-endpoint = CAS_ENDPOINT_TEMPLATE.format(cas_number='129-16-8')
-response = requests.get(endpoint)
-data = response.json()
+#endpoint = CAS_ENDPOINT_TEMPLATE.format(cas_number='2984-97-0')
+#response = requests.get(endpoint)
+#data = response.json()
+
+#cpd = pcp.get_compounds('Cn1c(nnn1)SCC1CS[C@@H]2[C@@](C(N2C=1C(O)=O)=O)(NC(=C1SC(=C(C(O)=O)C(N)=O)S1)O)OC', 'smiles')
+#cpd_data = cpd[0]
+
+#smiles_q = 'CC(C)OC(C1C(C(=C(C)N=C1C)C(=O)OC)c1cccc2c1non2)=O'
+#mol = Chem.MolFromSmiles(smiles_q)
+#Chem.RemoveStereochemistry(mol)
+#query_input = Chem.MolToSmiles(mol)
+#print(query_input)
+
+#'CC[C@]12CCCN3CCc4c5ccccc5n(C(C1)=O)c4[C@H]23'
+#'CCC12CCCN3CCc4c(n(c5ccccc45)C(=O)C1)C32'
+
+#cpd = pcp.get_compounds('Bambuterol', 'name')
+#cpd_data = cpd[0]
+
+#cpd = pcp.get_compounds('Beclomethasone dipropionate', 'name')
+#cpd_data = cpd[0]

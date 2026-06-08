@@ -7,6 +7,7 @@ Created on Wed Apr  9 21:17:20 2025
 
 import pandas as pd
 import ast
+import csv
 from rdkit import Chem
 from rdkit.Chem import Descriptors
 from rdkit.Chem import inchi
@@ -192,10 +193,10 @@ def dict_to_sheet(dictionary, save_path=None, fmat='.csv', buffer=None):
     cols = [key_column] + [col for col in out_sheet.columns if col != key_column]
     out_sheet = out_sheet[cols]    
     
-    # dealing with files through streamlit 
+    # dealing with files through streamlit
     if buffer is not None:
         if fmat == '.csv':
-            out_sheet.to_csv(buffer, index=False)
+            out_sheet.to_csv(buffer, index=False, quoting=csv.QUOTE_ALL)
         elif fmat in ['.xlsx', '.xls']:
             out_sheet.to_excel(buffer, index=False)
         else:
@@ -203,13 +204,13 @@ def dict_to_sheet(dictionary, save_path=None, fmat='.csv', buffer=None):
             return None
         buffer.seek(0)
         return buffer
-    else:        
+    else:
         try:
             # use this
             p = Path(save_path)
             if p.suffix.lower() == '.csv':
                 # cut out the file format
-                out_sheet.to_csv(p, index=False)
+                out_sheet.to_csv(p, index=False, quoting=csv.QUOTE_ALL)
             elif p.suffix.lower() in ('.xlsx', '.xls'):
                 out_sheet.to_excel(p, index=False)
             else:
@@ -310,10 +311,10 @@ def idx_dict_to_sheet(
     if return_pandas_df:
         return out_sheet
     
-    # dealing with files through streamlit 
+    # dealing with files through streamlit
     if buffer is not None:
         if fmat == '.csv':
-            out_sheet.to_csv(buffer, index=False)
+            out_sheet.to_csv(buffer, index=False, quoting=csv.QUOTE_ALL)
         elif fmat in ['.xlsx', '.xls']:
             out_sheet.to_excel(buffer, index=False)
         else:
@@ -324,10 +325,10 @@ def idx_dict_to_sheet(
     else:
         os.makedirs('output', exist_ok=True)
         save_path = os.path.join('output', file_name + fmat)
-        
+
         try:
             if fmat == '.csv':
-                out_sheet.to_csv(save_path, index=False)
+                out_sheet.to_csv(save_path, index=False, quoting=csv.QUOTE_ALL)
             elif fmat in ['.xlsx', '.xls']:
                 out_sheet.to_excel(save_path, index=False)
             else:

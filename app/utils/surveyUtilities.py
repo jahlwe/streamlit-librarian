@@ -266,8 +266,10 @@ def survey_gnps_csv(dictionary, records, name_and_mass=True):
             continue # skip compounds with no metadata
         
         # also matching names and masses for GNPS...
+        synonyms_raw = compound_data.get('synonyms', '')
+        synonyms = synonyms_raw.split('; ') if isinstance(synonyms_raw, str) and synonyms_raw else []
         name_list = [compound_name.lower()] + [
-            name.lower() for name in compound_data.get('altNames', []) if is_valid_name(name)
+            name.lower() for name in synonyms if is_valid_name(name)
         ]
         monoisotopic_mass = compound_data.get('monoisotopicMass')
         

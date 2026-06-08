@@ -1,0 +1,18 @@
+authors	AUTHOR_NAME
+license	LICENSE
+copyright	COPYRIGHT_HOLDER
+comment_1	COMMENT_FIELD
+instrument	INSTRUMENT_MODEL
+instrument_type	INSTRUMENT_TYPE
+ms_type	MS2
+ionization	IONIZATION
+fragmentation mode	FRAGMENTATION_MODE
+collision_energy	CE
+resolution	XXXXX
+column_name	COLUMN_NAME
+flow_gradient	FLOW_GRADIENT
+flow_rate	FLOW_RATE
+solvent_a	SOLV_A
+solvent_b	SOLV_B
+chromatography_comment_1	CHR_COMMENT
+data_processing	DATA_PROCESSING

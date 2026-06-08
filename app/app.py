@@ -320,6 +320,9 @@ def render_pcq():
                                 progress_bar.progress(current / total)
                                 status_text.text(f'Processing {current}/{total} : {compound}')
                             try:
+                                # PubChem settings --- only one thing so far
+                                canonicalize_smiles = st.session_state.get('canonicalize_smiles', False)
+                                drop_stereochemistry = st.session_state.get('drop_stereochemistry', False)
                                 # CHECK FOR COMPTOX STUFF...
                                 use_comptox = st.session_state.get('use_comptox', False)
                                 ctx_api_key = st.session_state.get('ctx_api_key')
@@ -333,6 +336,8 @@ def render_pcq():
                                     q_specs = None
                                                                   
                                 dictionary = pu.pcQueries(query_dict, progress_callback=progress_callback,
+                                                          canonicalize_smiles=canonicalize_smiles,
+                                                          drop_stereochemistry=drop_stereochemistry,
                                                           query_comptox=q_ctx, 
                                                           api_key=ctx_api_key, 
                                                           ctx_query_specs=q_specs
@@ -377,11 +382,15 @@ def render_pcq():
                     st.download_button('download results', st.session_state['pcq_output'].getvalue(),
                                        file_name='pcq_out.csv')
                     # idea from SP --- show the results in a dataframe?
-                    st.dataframe(gu.idx_dict_to_sheet(st.session_state['pcq_dict'], return_pandas_df=True))
+                    st.dataframe(gu.idx_dict_to_sheet(st.session_state['pcq_dict'], return_pandas_df=True).astype(str))
                     
     else:
         # ---------- PARAMS ----------
-        for key in ['use_comptox', 'ctx_api_key']:
+        for key in ['canonicalize_smiles', 'drop_stereochemistry']: # for PubChem
+            if key not in st.session_state:
+                st.session_state[key] = False
+        
+        for key in ['use_comptox', 'ctx_api_key']: # for CTX
             if key not in st.session_state:
                 st.session_state[key] = False if key == 'use_comptox' else None
                 
@@ -396,8 +405,30 @@ def render_pcq():
 
         with left_col:
             st.markdown("""**PubChem**  
-                        No customization options are currently available.
+                        Adjust settings for PubChem metadata queries.
                         """)
+                        
+            widget_one = st.checkbox(
+                "Canonicalize Input SMILES",
+                value=st.session_state['canonicalize_smiles'],
+                key='canonicalize_smiles_cb'
+            )
+
+            widget_two = st.checkbox(
+                "Drop Stereochemistry from Input SMILES",
+                value=st.session_state['drop_stereochemistry'],
+                key='drop_stereochemistry_cb',
+                disabled=not st.session_state['canonicalize_smiles'],
+                help='Requires "Canonicalize input SMILES" to be enabled.'
+            )
+
+            for widget_val, key in zip(
+                [widget_one, widget_two],
+                ['canonicalize_smiles', 'drop_stereochemistry']
+            ):
+                if widget_val != st.session_state[key]:
+                    st.session_state[key] = widget_val
+                    st.rerun()
 
         with right_col:
             st.markdown("""**CompTox**  
