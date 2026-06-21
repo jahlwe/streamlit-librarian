@@ -583,6 +583,7 @@ def preCompile_app(
     cf_data=None,
     # True for annotation, false for remove unannotated as basic settings
     annotate_fragments=(True, False, 10),
+    validation_params=(10, 1),
     progress_callback=None
 ):
     """
@@ -681,9 +682,12 @@ def preCompile_app(
                         progress_callback(i+1, total, compound)
 
     # Validation — use annotation ppm_tol if annotation was run, else default
-    val_ppm_tol = annotate_fragments[2] if annotate_fragments[0] else 10
+    # val_ppm_tol = annotate_fragments[2] if annotate_fragments[0] else 10
     print('running validation checks')
-    dictionary = cu.validate_preComp(dictionary, ppm_tol=val_ppm_tol)
+    dictionary = cu.validate_preComp(
+        dictionary, 
+        ppm_tol=validation_params[0],
+        isolation_window=validation_params[1])
 
     return dictionary
 

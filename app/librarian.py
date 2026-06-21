@@ -150,6 +150,8 @@ def preCompile(
     output_path,
     annot_fragments=True,
     ppm_tol=10,
+    ppm_tol_validation=10,
+    isolation_window=1.0,
     rti=False,
     classyfire=None,
 ):
@@ -173,7 +175,7 @@ def preCompile(
         if classyfire:
             dictionary = cu.manual_classyfire(dictionary, classyfire)
         # updated precomp function...
-        cu.preCompile_CLI(dictionary, mode, output_path, annot_fragments, ppm_tol)
+        cu.preCompile_CLI(dictionary, mode, output_path, annot_fragments, ppm_tol, ppm_tol_validation, isolation_window)
     print('done')
 
 def compile_library(
@@ -254,6 +256,8 @@ def precomp(args):
         output_path=args.output_path,
         annot_fragments=args.fa,
         ppm_tol=args.ppm_tol,
+        ppm_tol_validation=args.ppm_tol_validation,
+        isolation_window=args.isolation_window,
         rti=args.rti,
         classyfire=args.cf,
     )
@@ -331,7 +335,9 @@ def main():
     parser_precomp.add_argument('tsv_path', help='Instrumental metadata file path (e.g. data/manual_metadata.tsv)')
     parser_precomp.add_argument('output_path', help='Output file path including extension (e.g. data/preComp_pos.csv)')
     parser_precomp.add_argument('-fa', action='store_true', help='Perform fragment annotation')
-    parser_precomp.add_argument('-p','--ppm_tol', type=float, default=10, help='PPM tolerance for fragment annotation (default: 10)')
+    parser_precomp.add_argument('-p', '--ppm_tol', type=float, default=10, help='PPM tolerance for MS2 fragment annotation (default: 10)')
+    parser_precomp.add_argument('-pv', '--ppm_tol_validation', type=float, default=10, help='Validation MS1 mass deviation tolerance (default: 10)')
+    parser_precomp.add_argument('-iw', '--isolation_window', type=float, default=1.0, help='Isolation window width in Da for co-isolation check (default: 1.0)')
     parser_precomp.add_argument('-rti', default=None, help='Path to folder containing RTI spreadsheets (e.g. data/RTI/)')
     parser_precomp.add_argument('-cf', default=None, help='Path to ClassyFire .csv file (e.g. data/classyfire.csv)')
     parser_precomp.set_defaults(func=precomp)

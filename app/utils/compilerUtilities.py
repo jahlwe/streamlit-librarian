@@ -1137,6 +1137,8 @@ def preCompile_CLI(
     output_path,
     annotate_fragments=True,
     ppm_tol=10,
+    ppm_tol_validation=10,
+    isolation_window=1.0,
 ):
     """
     Organizes pre-assembly for CLI use. Mirrors preCompile_app logic.
@@ -1146,7 +1148,9 @@ def preCompile_CLI(
         mode (string): Current mode, pos/neg
         output_path (string): Full output file path including extension
         annotate_fragments (bool): Whether to perform fragment formula annotation
-        ppm_tol (float): PPM tolerance for fragment annotation (default: 10)
+        ppm_tol (float): PPM tolerance for MS2 fragment annotation (default: 10)
+        ppm_tol_validation (float): PPM tolerance for MS1 validation (default: 10)
+        isolation_window (float): Isolation window width in Da for co-isolation check (default: 1.0)
 
     Returns:
         Nothing --- saves pre-assembly sheet to output_path
@@ -1203,7 +1207,7 @@ def preCompile_CLI(
             print(f'processed {i + 1} of {total} compounds')
 
     print('running validation checks')
-    dictionary = validate_preComp(dictionary, ppm_tol=ppm_tol)
+    dictionary = validate_preComp(dictionary, ppm_tol=ppm_tol_validation, isolation_window=isolation_window)
 
     gu.dict_to_sheet(dictionary, output_path)
     print(f'pre-assembly sheet saved to {output_path}')

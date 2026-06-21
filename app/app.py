@@ -644,6 +644,13 @@ def render_lib_precomp():
         )
     if 'mat_fields_edit_buffer' not in st.session_state:
         st.session_state['mat_fields_edit_buffer'] = st.session_state['mat_fields'].copy()
+        
+    # params for validator --- these for now
+    if 'validation_ppm_tol' not in st.session_state:
+        st.session_state['validation_ppm_tol'] = 10
+    
+    if 'isolation_window_mz' not in st.session_state:
+        st.session_state['isolation_window_mz'] = 1
                 
     # try settings-window to allow field customization
     if st.button("⚙️ Parameters"):
@@ -848,6 +855,10 @@ def render_lib_precomp():
                             st.session_state['annot'], 
                             st.session_state['only_keep_annot'],
                             st.session_state['annot_ppm']),
+                        # also validation params
+                        validation_params=(
+                            st.session_state['validation_ppm_tol'],
+                            st.session_state['isolation_window_mz']),
                         progress_callback=progress_callback
                     )
                     output_buffer = io.StringIO()
@@ -963,7 +974,35 @@ def render_lib_precomp():
                 key='mat_fields_edit_delta',
                 on_change=save_mat_fields
             )
-
+            
+        st.markdown('**Data validation**')
+        st.markdown(
+            """
+            The pre-assembly step performs a number of checks to ensure validity of the integrated data.<br>
+            Threshold values for validation steps can be configured below.
+            """,
+            unsafe_allow_html=True
+        )
+        
+        validate_col, empty_col = st.columns(2)
+        
+        with validate_col:
+            validation_ppm_tol = st.number_input(
+                'MS1 mass deviation tolerance (ppm)',
+                min_value=0.1,
+                value=float(10),
+                step=0.1,
+            )
+            st.session_state['validation_ppm_tol'] = validation_ppm_tol
+            
+            isolation_window_mz = st.number_input(
+                'width of isolation window (m/z)',
+                min_value=0.1,
+                value=float(1),
+                step=0.1,
+            )
+            st.session_state['isolation_window_mz'] = isolation_window_mz
+        
         #has_data = any(row for row in df.to_dict(orient='records') if any(row.get(field) for field in ['name_q', 'cas_q', 'smiles_q','cid_q']))
         # use this as a counter
         #entries_with_content = sum(1 for row in df.to_dict(orient='records') if any(row.get(field) for field in ['name_q', 'cas_q', 'smiles_q','cid_q']))
@@ -1623,9 +1662,15 @@ def render_readme():
         './static/guide4.svg',
         './static/guide5.svg',
         './static/guide6.svg',
-        './static/guide7.svg'
+        './static/guide7.svg',
+        './static/guide8.svg',
+        './static/guide9.svg',
+        './static/guide10.svg',
+        './static/guide11.svg',
+        './static/guide12.svg'
     ]
-    image_names = ['0','1','2','3','4','5','6']
+    image_names = ['0','1','2','3','4','5',
+                   '6','7','8','9','10','11']
     
     slider_space, data_space, _ = st.columns([3,1,1])
     with slider_space:
