@@ -1622,7 +1622,7 @@ def render_hello():
         """
         The Librarian modules are accessed via the menu on the left-hand side.  
         Brief written use instructions are provided at the top of each respective module.  
-        For complete descriptions of functionality and use, see the pre-print:  
+        For complete descriptions of functionality and use, see the associated publication:  
         <i style="margin-left: 20px; display: inline-block;">
             <a href="https://doi.org/10.21203/rs.3.rs-8766869/v1" target="_blank">
                 *Librarian: an open-access web application for high-resolution mass spectral library assembly*
