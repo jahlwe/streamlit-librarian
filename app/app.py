@@ -1631,7 +1631,7 @@ def render_hello():
         \n
         For first-time users, a simple worked example of library assembly using Librarian is available under the readme sub-module.  
         \n
-        If you use Librarian for your publication, please consider citing:  
+        If you use Librarian for your publication, please cite:  
         <i style="margin-left: 20px; display: inline-block;">
         **Librarian: An Open-Access Web Application for High-Resolution Mass Spectral Library Assembly.**  
         Ahlberg Weidenfors, J.; Bonnefille, B.; Papazian, S.  
