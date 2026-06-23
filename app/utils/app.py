@@ -1624,7 +1624,7 @@ def render_hello():
         Brief written use instructions are provided at the top of each respective module.  
         For complete descriptions of functionality and use, see the associated publication:  
         <i style="margin-left: 20px; display: inline-block;">
-            <a href="https://www.mdpi.com/2218-1989/16/6/433" target="_blank">
+            <a href="https://doi.org/10.21203/rs.3.rs-8766869/v1" target="_blank">
                 *Librarian: an open-access web application for high-resolution mass spectral library assembly*
             </a>
         </i>
