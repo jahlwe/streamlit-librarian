@@ -1629,7 +1629,15 @@ def render_hello():
             </a>
         </i>
         \n
-        For first-time users, a simple worked example of library assembly using Librarian is available under the readme sub-module.
+        For first-time users, a simple worked example of library assembly using Librarian is available under the readme sub-module.  
+        \n
+        If you use Librarian for your publication, please consider citing:  
+        <i style="margin-left: 20px; display: inline-block;">
+        **Librarian: An Open-Access Web Application for High-Resolution Mass Spectral Library Assembly.**  
+        Ahlberg Weidenfors, J.; Bonnefille, B.; Papazian, S.  
+        Metabolites 2026, 16 (6), 433. https://doi.org/10.3390/metabo16060433.
+        </i>
+
         """, unsafe_allow_html=True)
         
     # end
