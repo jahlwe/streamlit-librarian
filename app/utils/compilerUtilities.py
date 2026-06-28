@@ -849,6 +849,16 @@ MSP_FIELDS = {
     'PK$NUM_PEAK:': 'Num Peaks:'    
 }
 
+# can we also try to get a MGF file out for the library
+MGF_FIELDS = {
+    # MGF field name: postComp CSV column name
+    'RTINSECONDS':      'AC$CHROMATOGRAPHY: RETENTION_TIME',
+    'PEPMASS':          'MS$FOCUSED_ION: PRECURSOR_M/Z',
+    'COLLISION_ENERGY': 'AC$MASS_SPECTROMETRY: COLLISION_ENERGY',
+    'INSTRUMENT_TYPE':  'AC$INSTRUMENT_TYPE:',
+    'IONMODE':          'AC$MASS_SPECTROMETRY: ION_MODE',
+}
+
 def compSheet_to_msp(output_dir, mode):
     """
     Creates an .msp file from the final assembly sheet.
@@ -880,9 +890,71 @@ def compSheet_to_msp(output_dir, mode):
                     msp.write(f"{peak_data[i]}\t{peak_data[i+2]}\n")
             msp.write('\n')
     return None
+    
 
 #compSheet_to_msp('output/compiler/postComp_pos.csv', 'pos')
 #compSheet_to_msp('output/compiler/postComp_neg.xlsx', 'neg')
+
+def compSheet_to_mgf(output_dir, mode):
+    """
+    Creates an .mgf file from the final assembly sheet.
+    Analogous to compSheet_to_msp, for CLI use.
+
+    Parameters & args:
+        output_dir (string): Folder containing the postComp_{mode}.csv written by create_txtFiles
+        mode (string): Current mode, pos/neg
+
+    Returns:
+        Nothing
+    """
+    postcomp_sheet_path = os.path.join(output_dir, f'postComp_{mode}.csv')
+    dictionary = gu.sheet_to_dict(postcomp_sheet_path, 'CH$NAME:')
+    mgf_path = os.path.join(output_dir, f'{str(date.today())}_{mode}.mgf')
+
+    with open(mgf_path, 'w') as mgf:
+        for i, (compound, fields) in enumerate(dictionary.items(), start=1):
+            mgf.write('BEGIN IONS\n')
+            mgf.write(f'SPECTRUMID={i}\n')
+            mgf.write(f'NAME={compound}\n')
+            mgf.write(f'FEATURE_ID={i}\n')
+            mgf.write(f'MSLEVEL=2\n')
+            # dynamic fields in order matching app version
+            for mgf_field, col in MGF_FIELDS.items():
+                if mgf_field == 'PEPMASS':
+                    # insert CHARGE immediately after PEPMASS
+                    value = fields.get(col, '')
+                    if value != '':
+                        mgf.write(f'PEPMASS={value}\n')
+                    ion_type = fields.get('MS$FOCUSED_ION: ION_TYPE', '')
+                    if ion_type:
+                        charge = abs(get_charge(ion_type))
+                        mgf.write(f'CHARGE={charge if charge else "none"}\n')
+                    else:
+                        mgf.write('CHARGE=none\n')
+                    mgf.write('FEATURE_MS1_HEIGHT=none\n')
+                else:
+                    value = fields.get(col, '')
+                    if value != '':
+                        mgf.write(f'{mgf_field}={value}\n')
+            mgf.write('FILENAME=none\n')
+            # peaks --- PK$PEAK: is a formatted string: header line + '  mz abs_int norm_int' lines
+            peak_data = fields.get('PK$PEAK:', '')
+            if peak_data:
+                peak_lines = [
+                    l.strip() for l in peak_data.strip().split('\n')
+                    if l.strip() and not l.strip().startswith('m/z')
+                ]
+                mgf.write(f'Num peaks={len(peak_lines)}\n')
+                for line in peak_lines:
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        mgf.write(f'{parts[0]} {parts[1]}\n')
+            mgf.write('END IONS\n')
+
+    return None
+
+#compSheet_to_mgf('output/compiler', 'pos')
+#compSheet_to_mgf('output/compiler', 'neg')
 
 # -------------------- CLI SUPPORT --------------------
 

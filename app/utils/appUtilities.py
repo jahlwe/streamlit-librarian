@@ -153,6 +153,28 @@ MSP_FIELDS = {
     'num_peak': 'Num Peaks:'    
 }
 
+# can we also try to get a MGF file out for the library
+MGF_FIELDS = {
+    # which is the first mgf field that corresponds to a (meta-)data slot
+    # starts with SPECTRUMID, then NAME, FEATURE_ID, MSLEVEL...
+    # then...
+    # We need to do something like this, flag what is static and not
+    # Or something that we don't necessarily have as a data field like name
+    'SPECTRUMID': 'STATIC',
+    'NAME': 'STATIC',
+    'FEATURE_ID': 'STATIC',
+    'MSLEVEL': 'STATIC',
+    'RTINSECONDS': 'retention_time',
+    'PEPMASS': 'precursor_mz',
+    'CHARGE': 'STATIC',
+    'FEATURE_MS1_HEIGHT': 'STATIC',
+    'COLLISION_ENERGY': 'collision_energy',
+    'INSTRUMENT_TYPE': 'instrument_type',
+    'IONMODE': 'ion_mode',
+    'FILENAME': 'STATIC',
+    'Num peaks': 'num_peak',
+}
+
 # --- METADATA TEMPLATE ---
 METADATA_TEMPLATE_FIELDS = {
     'authors': 'AUTHOR_NAME', 'license': 'LICENSE', 'copyright': 'COPYRIGHT_HOLDER',
@@ -922,6 +944,90 @@ def write_mspFile_app(comp_dict, mode):
     msp_output.seek(0)
     return msp_output.getvalue()
 
+# can we also try to get a MGF file out for the library
+MGF_FIELDS = {
+    # which is the first mgf field that corresponds to a (meta-)data slot
+    # starts with SPECTRUMID, then NAME, FEATURE_ID, MSLEVEL...
+    # then...
+    # We need to do something like this, flag what is static and not
+    # Or something that we don't necessarily have as a data field like name
+    'SPECTRUMID': 'STATIC',
+    'NAME': 'STATIC',
+    'FEATURE_ID': 'STATIC',
+    'MSLEVEL': 'STATIC',
+    'RTINSECONDS': 'retention_time',
+    'PEPMASS': 'precursor_mz',
+    'CHARGE': 'STATIC',
+    'FEATURE_MS1_HEIGHT': 'STATIC',
+    'COLLISION_ENERGY': 'collision_energy',
+    'INSTRUMENT_TYPE': 'instrument_type',
+    'IONMODE': 'ion_mode',
+    'FILENAME': 'STATIC',
+    'Num peaks': 'num_peak',
+}
+
+def write_mgf_app(comp_dict, mode):
+    #...
+    
+    mgf_output = io.StringIO()
+    for i, (compound, compound_data) in enumerate(comp_dict.items(), start=1):
+        mgf_output.write('BEGIN IONS\n')
+        for mgf_field, field in MGF_FIELDS.items():
+            if field == 'STATIC':
+                if mgf_field in ('SPECTRUMID', 'FEATURE_ID'):
+                    mgf_output.write(f'{mgf_field}={i}\n')
+                if mgf_field == 'NAME':
+                    mgf_output.write(f'{mgf_field}={compound}\n')
+                if mgf_field == 'MSLEVEL':
+                    mgf_output.write(f'{mgf_field}=2\n')
+                if mgf_field == 'CHARGE':
+                    adduct = compound_data.get('ion_type')
+                    if adduct:
+                        charge = get_charge(adduct)
+                        if charge:
+                            mgf_output.write(f'{mgf_field}={charge}\n')
+                        else:
+                            mgf_output.write(f'{mgf_field}=none\n')
+                    else:
+                        mgf_output.write(f'{mgf_field}=none\n')
+                if mgf_field == 'FEATURE_MS1_HEIGHT':
+                    #ms2_data = compound_data.get('ms2_data')
+                    #if not ms2_data:
+                    #    mgf_output.write(f'{mgf_field}=none\n')
+                    #else:
+                    #    intensities = [intensity for mz, intensity in ms2_data]
+                    #    max_int = max(intensities) if intensities else 'none'
+                    #    s = f'{max_int:.3E}'
+                    #    s = re.sub(r'E\+?0*(\d+)', r'E\1', s)
+                    #    mgf_output.write(f'{mgf_field}={s}\n')
+                    #
+                    # ... actually, we don't have this
+                    #
+                    mgf_output.write(f'{mgf_field}=none\n')
+                if mgf_field == 'FILENAME':
+                    mgf_output.write(f'{mgf_field}=none\n')
+            elif field == 'num_peak':
+                ms2_peaks = compound_data.get('ms2_data')
+                if ms2_peaks:
+                    mgf_output.write(f'Num peaks={len(ms2_peaks)}\n')
+                    for mz, intensity in ms2_peaks:
+                        mgf_output.write(f'{mz} {intensity}\n')
+            else:
+                # this covers every non-static
+                if field == 'retention_time':
+                    value = compound_data.get(field, 'none')
+                    rt_s = value * 60
+                    rt_f = '{0:.2f}'.format(rt_s)
+                    mgf_output.write(f'{mgf_field}={rt_f}\n')
+                else:
+                    value = compound_data.get(field, 'none')
+                    mgf_output.write(f'{mgf_field}={value}\n')
+        mgf_output.write('END IONS\n\n')
+    mgf_output.seek(0)
+    return mgf_output.getvalue()
+    # end
+
+
 # create everything inside the zip file is a good solution
 def create_compZip(comp_data, mode, field_mapping):
     """
@@ -943,6 +1049,10 @@ def create_compZip(comp_data, mode, field_mapping):
         # add .msp
         msp_content = write_mspFile_app(comp_data, mode)
         zipf.writestr(f'{mode}/msp/library_{mode}.msp', msp_content)
+
+        # add .mgf
+        mgf_content = write_mgf_app(comp_data, mode)
+        zipf.writestr(f'{mode}/mgf/library_{mode}.mgf', mgf_content)
     
     zip_buffer.seek(0)
     return zip_buffer
